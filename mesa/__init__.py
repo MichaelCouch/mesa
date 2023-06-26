@@ -12,9 +12,11 @@ from mesa.agent import Agent
 from mesa.batchrunner import batch_run
 from mesa.datacollection import DataCollector
 from mesa.model import Model
+from mesa.model_master import ModelMaster
 
 __all__ = [
     "Model",
+    "ModelMaster",
     "Agent",
     "time",
     "space",
