@@ -982,6 +982,15 @@ class ContinuousSpace:
         x, y = pos
         return x < self.x_min or x >= self.x_max or y < self.y_min or y >= self.y_max
 
+class SharedMemoryContinuousSpace(ContinuousSpace):
+
+    """Continuous space in shared memory - accessible by parallel workers"""
+
+    def __init__(self, *args, **kwargs):
+        """TODO: to be defined. """
+        ContinuousSpace.__init__(self, *args, **kwargs)
+
+        
 
 class NetworkGrid:
     """Network Grid where each node contains zero or more agents."""

@@ -287,3 +287,75 @@ class RandomActivationByType(BaseScheduler):
         Returns the current number of agents of certain type in the queue.
         """
         return len(self.agents_by_type[type_class])
+
+class ParallelRandomActivationByType(RandomActivationByType):
+    """
+    A scheduler which activates each type of agent once per step, in random
+    order, with the order reshuffled every step. It operates in parallel with other worder models and communicates with them as needed
+
+    """
+
+    def __init__(self, model: Model) -> None:
+        super().__init__(model)
+
+    def add(self, agent: Agent) -> None:
+        """
+        Add an Agent object to the schedule
+
+        Args:
+            agent: An Agent to be added to the schedule.
+        """
+        super().add(agent)
+        agent_class: type[Agent] = type(agent)
+        self.agents_by_type[agent_class][agent.unique_id] = agent
+
+    def remove(self, agent: Agent) -> None:
+        """
+        Remove all instances of a given agent from the schedule.
+        """
+        del self._agents[agent.unique_id]
+
+        agent_class: type[Agent] = type(agent)
+        del self.agents_by_type[agent_class][agent.unique_id]
+
+    def step(self, shuffle_types: bool = True, shuffle_agents: bool = True) -> None:
+        """
+        Executes the step of each agent type, one at a time, in random order.
+
+        Args:
+            shuffle_types: If True, the order of execution of each types is
+                           shuffled.
+            shuffle_agents: If True, the order of execution of each agents in a
+                            type group is shuffled.
+        """
+        # To be able to remove and/or add agents during stepping
+        # it's necessary to cast the keys view to a list.
+        type_keys: list[type[Agent]] = list(self.agents_by_type.keys())
+        if shuffle_types:
+            self.model.random.shuffle(type_keys)
+        for agent_class in type_keys:
+            self.step_type(agent_class, shuffle_agents=shuffle_agents)
+        self.steps += 1
+        self.time += 1
+
+    def step_type(self, type_class: type[Agent], shuffle_agents: bool = True) -> None:
+        """
+        Shuffle order and run all agents of a given type.
+        This method is equivalent to the NetLogo 'ask [breed]...'.
+
+        Args:
+            type_class: Class object of the type to run.
+        """
+        agent_keys: list[int] = list(self.agents_by_type[type_class].keys())
+        if shuffle_agents:
+            self.model.random.shuffle(agent_keys)
+        for agent_key in agent_keys:
+            if agent_key in self.agents_by_type[type_class]:
+                self.agents_by_type[type_class][agent_key].step()
+
+    def get_type_count(self, type_class: type[Agent]) -> int:
+        """
+        Returns the current number of agents of certain type in the queue.
+        """
+        return len(self.agents_by_type[type_class])
+

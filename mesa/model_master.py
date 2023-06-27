@@ -24,7 +24,7 @@ class ModelMaster:
         obj.random = random.Random(obj._seed)
         return obj
 
-    def __init__(self, n_workers=1, WorkerModel: Any, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, n_workers: int, WorkerModel: type, *args, **kwargs: Any) -> None:
         """Create a new model. Overload this method with the actual code to
         start the model.
 
@@ -36,13 +36,14 @@ class ModelMaster:
         self.running = True
         self.schedule = None
         self.current_id = 0
-        self._model_workers = {i: WorkerModel(args, kwargs) for i in range(n_workers)}
-
+        self._model_workers = {i: WorkerModel(*args, **kwargs) for i in range(n_workers)}
+        self.schedule_allocation = {}
 
     def run_model(self) -> None:
         """Run the model until the end condition is reached. Overload as
         needed.
         """
+        import ipdb; ipdb.set_trace()
         while self.running:
             self.step()
 
@@ -57,6 +58,7 @@ class ModelMaster:
         if all(model_statuses):
             # Allow the models to resolve things amongst themselves
             for i, model in self._model_workers.items():
+                print(f"Model {i} working")
                 model.step()
 
     def next_id(self) -> int:
@@ -99,5 +101,13 @@ class ModelMaster:
         )
         # Collect data for the first time during initialization.
         self.datacollector.collect(self)
+
+    def assign_scheduled_agents_to_workers(self, random=True):
+        """Allocate TODO: Docstring for assign_scheduled_agents_to_workers."""
+        for key, agent in self.schedule._agents.items():
+            k = self.random.randint(0, len(self._model_workers)-1)
+            self._model_workers[k].schedule.add(agent)
+            self.schedule.remove_agent(key)
+            self.schedule_allocation[key] = {'worker': k}
 
 
