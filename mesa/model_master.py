@@ -11,7 +11,7 @@ import random
 # mypy
 from typing import Any
 
-from mesa.datacollection import DataCollector
+from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
 
 class ModelMaster:
@@ -58,8 +58,9 @@ class ModelMaster:
         if all(model_statuses):
             # Allow the models to resolve things amongst themselves
             for i, model in self._model_workers.items():
-                print(f"Model {i} working")
+                #print(f"Model {i} working")
                 model.step()
+        print(self.grid._agent_points)
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""
@@ -89,25 +90,45 @@ class ModelMaster:
             raise RuntimeError(
                 "You must initialize the scheduler (self.schedule) before initializing the data collector."
             )
-        if self.schedule.get_agent_count() == 0:
+        if (self.schedule.get_agent_count() == 0
+            and all(model.schedule.get_agent_count() == 0 for model in self._model_workers.values())
+            ):
             raise RuntimeError(
                 "You must add agents to the scheduler before initializing the data collector."
             )
-        self.datacollector = DataCollector(
+        self.datacollector = ParallelDataCollector(
             model_reporters=model_reporters,
             agent_reporters=agent_reporters,
             tables=tables,
             exclude_none_values=exclude_none_values,
         )
+        for key, model_worker in self._model_workers.items():
+            model_worker.initialize_data_collector(
+                model_reporters=model_reporters,
+                agent_reporters=agent_reporters,
+                tables=tables,
+                exclude_none_values=exclude_none_values
+            )
         # Collect data for the first time during initialization.
         self.datacollector.collect(self)
 
     def assign_scheduled_agents_to_workers(self, random=True):
-        """Allocate TODO: Docstring for assign_scheduled_agents_to_workers."""
+        """Assign agents to each of the workers."""
+        agents_to_cleanup = []
         for key, agent in self.schedule._agents.items():
             k = self.random.randint(0, len(self._model_workers)-1)
             self._model_workers[k].schedule.add(agent)
-            self.schedule.remove_agent(key)
+            agent.model = self._model_workers[k]
             self.schedule_allocation[key] = {'worker': k}
+            agents_to_cleanup.append(agent)
 
+        for agent in agents_to_cleanup:
+            self.schedule.remove(agent)
+
+    def link_grid_to_workers(self):
+        """Link the grid to each of the workers"""
+        grid = self.grid
+        for key, worker_model in self._model_workers.items():
+            # TODO: remove dependency on grid private attributes _xxx...
+            worker_model.link_shared_memory_grid(grid)
 

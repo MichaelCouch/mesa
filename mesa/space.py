@@ -37,12 +37,15 @@ from typing import (
     cast,
     overload,
 )
+import random
+import string
 from warnings import warn
 
 import networkx as nx
 import numpy as np
 import numpy.typing as npt
 
+from multiprocessing.shared_memory import SharedMemory
 # For Mypy
 from .agent import Agent
 
@@ -986,11 +989,46 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
 
     """Continuous space in shared memory - accessible by parallel workers"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, name=None, owner=True, create=True, **kwargs):
         """TODO: to be defined. """
         ContinuousSpace.__init__(self, *args, **kwargs)
+        if name is None:
+            name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(16))
+        self._owner = owner
+        self.name = name
+        self._create = create
+        self._agents = {}
 
-        
+
+    def _build_agent_cache(self):
+        """Cache agents positions to speed up neighbors calculations."""
+        n_agents = len(self._agent_to_index)
+        array_size = n_agents * 8 * 2 # 2 64 bit ints per agent
+        self._shm = SharedMemory(name=self.name, size=array_size, create=self._create)
+        self._agent_points = np.ndarray(shape=(n_agents,2), dtype=float, buffer=self._shm.buf)
+        for idx, agent_id in enumerate(self._agents):
+            agent = self._agents[agent_id]
+            self._index_to_agent[idx] = agent_id
+            self._agent_points[idx] = np.array(agent.position)
+        #self.grid._agent_id_to_grid_index = {agent.unique_id: idx for agent, idx in self.grid._agent_to_index}
+        #self.grid_index_to_agent_id = {idx: agent.unique_id for idx, agent in self.grid._index_to_agent}
+
+    def remove_agent(self, agent: Agent) -> None:
+        raise NotImplementedError("remove_agent not implemented for SharedMemoryContinuousSpace")
+
+    def place_agent(self, agent: Agent, pos: FloatCoordinate) -> None:
+        if not self._owner:
+            raise NotImplementedError("place_agent not implemented for non-owner SharedMemoryContinuousSpace")
+        self._invalidate_agent_cache()
+        self._agent_to_index[agent.unique_id] = None
+        self._agents[agent.unique_id] = agent
+        pos = self.torus_adj(pos)
+        agent.pos = pos
+
+    #def _invalidate_agent_cache(self):
+        if not self._owner:
+            raise NotImplementedError("_invalidate_agent_cache not implemented for non-owner SharedMemoryContinuousSpace")
+        ContinuousSpace._invalidate_agent_cache(self)
 
 class NetworkGrid:
     """Network Grid where each node contains zero or more agents."""

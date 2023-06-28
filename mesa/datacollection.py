@@ -277,3 +277,21 @@ class DataCollector:
         if table_name not in self.tables:
             raise Exception("No such table.")
         return pd.DataFrame(self.tables[table_name])
+
+class ParallelDataCollector(DataCollector):
+
+    """Parallelized data collector Docstring for ParallelDataCollector. """
+
+    def __init__(self, *args, **kwargs):
+        """TODO: to be defined. """
+        DataCollector.__init__(self, *args, **kwargs)
+
+    def collect(self, master_model):
+        for key, model in master_model._model_workers.items():
+            model.datacollector.collect(model)
+            self.model_vars[key] = model.datacollector.model_vars
+            self._agent_records[key] = model.datacollector._agent_records
+            
+
+
+        
