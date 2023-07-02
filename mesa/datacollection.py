@@ -289,9 +289,27 @@ class ParallelDataCollector(DataCollector):
     def collect(self, master_model):
         for key, model in master_model._model_workers.items():
             model.datacollector.collect(model)
-            self.model_vars[key] = model.datacollector.model_vars
-            self._agent_records[key] = model.datacollector._agent_records
-            
+
+        if self.model_reporters:
+            for var, reporter in self.model_reporters.items():
+                # Check if Lambda operator
+                if isinstance(reporter, types.LambdaType):
+                    self.model_vars[var].append(reporter(self._model_workers))
+                # Check if model attribute
+                elif isinstance(reporter, str):
+                    self.model_vars[var].append(getattr(self._model_workers, reporter, None))
+                # Check if function with arguments
+                elif isinstance(reporter, list):
+                    self.model_vars[var].append(reporter[0](self._model_workers, *reporter[1]))
+                # TODO: Check if method of a class, as of now it is assumed
+                # implicitly if the other checks fail.
+                else:
+                    self.model_vars[var].append(reporter())
+
+        if self.agent_reporters:
+            agent_records = []
+            for model in master_model._model_workers.values():
+                agent_records += model.datacollector._agent_records[model.schedule.steps]
+            self._agent_records[model.schedule.steps] = agent_records
 
 
-        
