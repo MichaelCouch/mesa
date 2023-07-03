@@ -13,9 +13,9 @@ from typing import Any
 
 from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
-
+from mesa.server import model_worker_server
 class ModelMaster:
-    """A parallel worker managing computation and messaging with other workers"""
+    """A parallel worker managing computation and messaging with other child_models"""
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Any:
         """Create a new model object and instantiate its RNG automatically."""
@@ -36,14 +36,28 @@ class ModelMaster:
         self.running = True
         self.schedule = None
         self.current_id = 0
-        self._model_workers = {i: WorkerModel(*args, **kwargs) for i in range(n_workers)}
+        self._n_workers = n_workers
+        self._child_models = {i: WorkerModel(*args, **kwargs) for i in range(n_workers)}
+        self._model_workers = {}
         self.schedule_allocation = {}
+
+    def initialize_worker_processes(self) -> None:
+        """ Initialize worker processes
+        """
+        ports = [8000 + i for i in range(self._n_workers)]
+        for i in range(self._n_workers):
+            port = ports[i]
+            process = multiprocessing.Process(target=model_worker_server, args=(port,self._child_models[i]))
+            process.start()
+            server_address = ('localhost', port)
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._model_workers[i] = {'address': server_address, 'process': process, 'socket': client_socket}
+
 
     def run_model(self) -> None:
         """Run the model until the end condition is reached. Overload as
         needed.
         """
-        import ipdb; ipdb.set_trace()
         while self.running:
             self.step()
 
@@ -52,12 +66,13 @@ class ModelMaster:
         model_statuses = []
         for i, model in self._model_workers.items():
             # This won't work as-is - need all processes to send an OK signal
+            # need to use threading to async get all 
             status = model.advance()
             model_statuses.append(status)
 
         if all(model_statuses):
             # Allow the models to resolve things amongst themselves
-            for i, model in self._model_workers.items():
+            for i, model in self._child_models.items():
                 #print(f"Model {i} working")
                 model.step()
         print(self.grid._agent_points)
@@ -91,7 +106,7 @@ class ModelMaster:
                 "You must initialize the scheduler (self.schedule) before initializing the data collector."
             )
         if (self.schedule.get_agent_count() == 0
-            and all(model.schedule.get_agent_count() == 0 for model in self._model_workers.values())
+            and all(model.schedule.get_agent_count() == 0 for model in self._child_models.values())
             ):
             raise RuntimeError(
                 "You must add agents to the scheduler before initializing the data collector."
@@ -102,7 +117,7 @@ class ModelMaster:
             tables=tables,
             exclude_none_values=exclude_none_values,
         )
-        for key, model_worker in self._model_workers.items():
+        for key, model_worker in self._child_models.items():
             model_worker.initialize_data_collector(
                 model_reporters=model_reporters,
                 agent_reporters=agent_reporters,
@@ -112,23 +127,23 @@ class ModelMaster:
         # Collect data for the first time during initialization.
         self.datacollector.collect(self)
 
-    def assign_scheduled_agents_to_workers(self, random=True):
-        """Assign agents to each of the workers."""
+    def assign_scheduled_agents_to_child_models(self, random=True):
+        """Assign agents to each of the child_models."""
         agents_to_cleanup = []
         for key, agent in self.schedule._agents.items():
-            k = self.random.randint(0, len(self._model_workers)-1)
-            self._model_workers[k].schedule.add(agent)
-            agent.model = self._model_workers[k]
+            k = self.random.randint(0, len(self._child_models)-1)
+            self._child_models[k].schedule.add(agent)
+            agent.model = self._child_models[k]
             self.schedule_allocation[key] = {'worker': k}
             agents_to_cleanup.append(agent)
 
         for agent in agents_to_cleanup:
             self.schedule.remove(agent)
 
-    def link_grid_to_workers(self):
-        """Link the grid to each of the workers"""
+    def link_grid_to_child_models(self):
+        """Link the grid to each of the child_models"""
         grid = self.grid
-        for key, worker_model in self._model_workers.items():
+        for key, worker_model in self._child_models.items():
             # TODO: remove dependency on grid private attributes _xxx...
             worker_model.link_shared_memory_grid(grid)
 
