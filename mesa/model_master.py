@@ -7,13 +7,16 @@ Core Objects: ModelMaster"""
 from __future__ import annotations
 
 import random
+import multiprocessing
+import socket
+import time
 
-# mypy
 from typing import Any
 
 from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
-from mesa.server import model_worker_server
+from mesa.server import model_worker_server, communicate_message
+
 class ModelMaster:
     """A parallel worker managing computation and messaging with other child_models"""
 
@@ -24,7 +27,7 @@ class ModelMaster:
         obj.random = random.Random(obj._seed)
         return obj
 
-    def __init__(self, n_workers: int, WorkerModel: type, *args, **kwargs: Any) -> None:
+    def __init__(self, n_workers: int, WorkerModel: type, port=None, *args, **kwargs: Any) -> None:
         """Create a new model. Overload this method with the actual code to
         start the model.
 
@@ -36,22 +39,36 @@ class ModelMaster:
         self.running = True
         self.schedule = None
         self.current_id = 0
+        self._port = 8000 if port is None else port
         self._n_workers = n_workers
         self._child_models = {i: WorkerModel(*args, **kwargs) for i in range(n_workers)}
         self._model_workers = {}
         self.schedule_allocation = {}
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for _, model in self._model_workers.items():
+            model['connection'].close()
+            model['process'].terminate()
+        return True
+
+
     def initialize_worker_processes(self) -> None:
         """ Initialize worker processes
         """
-        ports = [8000 + i for i in range(self._n_workers)]
+        ports = [self._port + i for i in range(self._n_workers)]
         for i in range(self._n_workers):
             port = ports[i]
             process = multiprocessing.Process(target=model_worker_server, args=(port,self._child_models[i]))
             process.start()
+            time.sleep(3)
             server_address = ('localhost', port)
+            print(server_address)
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._model_workers[i] = {'address': server_address, 'process': process, 'socket': client_socket}
+            client_socket.connect(server_address)
+            self._model_workers[i] = {'address': server_address, 'process': process, 'connection': client_socket}
 
 
     def run_model(self) -> None:
@@ -64,18 +81,19 @@ class ModelMaster:
     def step(self) -> None:
         """Step each worker node. Fill in here."""
         model_statuses = []
-        for i, model in self._model_workers.items():
-            # This won't work as-is - need all processes to send an OK signal
+        for i, worker in self._model_workers.items():
+            response = communicate_message(worker, ('advance', tuple()))
             # need to use threading to async get all 
-            status = model.advance()
-            model_statuses.append(status)
+            model_statuses.append(response is None)
 
         if all(model_statuses):
             # Allow the models to resolve things amongst themselves
-            for i, model in self._child_models.items():
+            for i, model in self._model_workers.items():
                 #print(f"Model {i} working")
-                model.step()
-        print(self.grid._agent_points)
+                # need to use threading to async get all 
+                response = communicate_message(worker, ('step',tuple()))
+        else:
+            raise WorkerException()
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""
@@ -125,7 +143,7 @@ class ModelMaster:
                 exclude_none_values=exclude_none_values
             )
         # Collect data for the first time during initialization.
-        self.datacollector.collect(self)
+        self.datacollector.collect(self, init=True)
 
     def assign_scheduled_agents_to_child_models(self, random=True):
         """Assign agents to each of the child_models."""

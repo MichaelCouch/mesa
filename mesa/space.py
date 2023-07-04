@@ -998,6 +998,7 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
         self.name = name
         self._create = create
         self._agents = {}
+        self._shm = None
 
 
     def _build_agent_cache(self):
@@ -1026,9 +1027,13 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
         agent.pos = pos
 
     #def _invalidate_agent_cache(self):
-        if not self._owner:
-            raise NotImplementedError("_invalidate_agent_cache not implemented for non-owner SharedMemoryContinuousSpace")
-        ContinuousSpace._invalidate_agent_cache(self)
+    #    if not self._owner:
+    #        raise NotImplementedError("_invalidate_agent_cache not implemented for non-owner SharedMemoryContinuousSpace")
+    #    ContinuousSpace._invalidate_agent_cache(self)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._owner and self._shm:
+            self._shm.close()
 
 class NetworkGrid:
     """Network Grid where each node contains zero or more agents."""
