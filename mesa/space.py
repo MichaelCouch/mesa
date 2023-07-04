@@ -1014,6 +1014,22 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
         #self.grid._agent_id_to_grid_index = {agent.unique_id: idx for agent, idx in self.grid._agent_to_index}
         #self.grid_index_to_agent_id = {idx: agent.unique_id for idx, agent in self.grid._index_to_agent}
 
+    def move_agent(self, agent: Agent, pos: FloatCoordinate) -> None:
+        """Move an agent from its current position to a new position.
+
+        Args:
+            agent: The agent object to move.
+            pos: Coordinate tuple to move the agent to.
+        """
+        pos = self.torus_adj(pos)
+        agent.pos = pos
+
+        if self._agent_points is not None:
+            # instead of invalidating the full cache,
+            # apply the move to the cached values
+            idx = self._agent_to_index[agent.unique_id]
+            self._agent_points[idx] = pos
+
     def remove_agent(self, agent: Agent) -> None:
         raise NotImplementedError("remove_agent not implemented for SharedMemoryContinuousSpace")
 
@@ -1032,8 +1048,9 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
     #    ContinuousSpace._invalidate_agent_cache(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._owner and self._shm:
+        if self._owner and self._shm is not None:
             self._shm.close()
+        return True
 
 class NetworkGrid:
     """Network Grid where each node contains zero or more agents."""

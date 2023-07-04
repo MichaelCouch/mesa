@@ -23,7 +23,7 @@ def handle_message(model, message):
     try:
         if len(message) == 2:
              is_method = True
-             args = message[1]
+             args = [model if arg == 'target_model_self' else arg for arg in message[1]]
         elif len(message) == 1: # else, assume it's an attribute:
              is_method = False
         else: # Can't understand this message
@@ -34,12 +34,12 @@ def handle_message(model, message):
         path = message[0].split('.')
         attr = model
         for subattr in path:
-            attr = getattr(obj, subattr)
-        
+            attr = getattr(attr, subattr)
         response = attr(*args) if is_method else attr
         return response
 
     except Exception as e:
+        raise
         log_traceback(e)
         response = e
         return response
@@ -89,6 +89,9 @@ def receive(socket_):
         data += socket_.recv(to_get)
         received += to_get
     response = pickle.loads(data)
+    if isinstance(response, Exception):
+         log_traceback(response)
+         raise response
     return response
 
 

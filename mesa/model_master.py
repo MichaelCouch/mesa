@@ -17,6 +17,17 @@ from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
 from mesa.server import model_worker_server, communicate_message
 
+class WorkerException(Exception):
+
+    """Docstring for WorkerException. """
+
+    def __init__(self, *args, **kwargs):
+        """TODO: to be defined. """
+        Exception.__init__(self, *args, **kwargs)
+
+        
+
+
 class ModelMaster:
     """A parallel worker managing computation and messaging with other child_models"""
 
@@ -52,6 +63,9 @@ class ModelMaster:
         for _, model in self._model_workers.items():
             model['connection'].close()
             model['process'].terminate()
+
+        if hasattr(self, 'grid'):
+            self.grid.__exit__(exc_type, exc_val, exc_tb)
         return True
 
 
@@ -63,7 +77,7 @@ class ModelMaster:
             port = ports[i]
             process = multiprocessing.Process(target=model_worker_server, args=(port,self._child_models[i]))
             process.start()
-            time.sleep(3)
+            time.sleep(2)
             server_address = ('localhost', port)
             print(server_address)
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -93,7 +107,7 @@ class ModelMaster:
                 # need to use threading to async get all 
                 response = communicate_message(worker, ('step',tuple()))
         else:
-            raise WorkerException()
+            raise WorkerException("Not all worker models returned success")
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""
@@ -143,7 +157,7 @@ class ModelMaster:
                 exclude_none_values=exclude_none_values
             )
         # Collect data for the first time during initialization.
-        self.datacollector.collect(self, init=True)
+        self.datacollector.collect(self)
 
     def assign_scheduled_agents_to_child_models(self, random=True):
         """Assign agents to each of the child_models."""

@@ -289,7 +289,7 @@ class ParallelDataCollector(DataCollector):
 
     def collect(self, master_model):
         for _, worker in master_model._model_workers.items():
-            communicate_message(worker, ('datacollector.collect', tuple())
+            communicate_message(worker, ('datacollector.collect', ('target_model_self',)))
 
         if self.model_reporters:
             for var, reporter in self.model_reporters.items():
@@ -311,7 +311,7 @@ class ParallelDataCollector(DataCollector):
             agent_records = []
             for worker in master_model._model_workers.values():
                 # Assume worker models have run the same number of steps as 
-                agent_records += communicate_message(worker, ('datacollector._agent_records.__get__', (self.schedule.steps,)) 
+                agent_records += communicate_message(worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))) 
             self._agent_records[master_model.schedule.steps] = agent_records
 
 
