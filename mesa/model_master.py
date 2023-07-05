@@ -61,6 +61,7 @@ class ModelMaster:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         for _, model in self._model_workers.items():
+            communicate_message(model, 'kill')
             model['connection'].close()
             model['process'].terminate()
 
@@ -72,6 +73,7 @@ class ModelMaster:
     def initialize_worker_processes(self) -> None:
         """ Initialize worker processes
         """
+        import os
         ports = [self._port + i for i in range(self._n_workers)]
         for i in range(self._n_workers):
             port = ports[i]
@@ -79,11 +81,9 @@ class ModelMaster:
             process.start()
             time.sleep(2)
             server_address = ('localhost', port)
-            print(server_address)
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client_socket.connect(server_address)
             self._model_workers[i] = {'address': server_address, 'process': process, 'connection': client_socket}
-
 
     def run_model(self) -> None:
         """Run the model until the end condition is reached. Overload as
@@ -95,19 +95,22 @@ class ModelMaster:
     def step(self) -> None:
         """Step each worker node. Fill in here."""
         model_statuses = []
-        for i, worker in self._model_workers.items():
+        self.schedule.step() # Possibly the below should be included in schedule.step?
+        for _, worker in self._model_workers.items():
             response = communicate_message(worker, ('advance', tuple()))
             # need to use threading to async get all 
             model_statuses.append(response is None)
 
         if all(model_statuses):
             # Allow the models to resolve things amongst themselves
-            for i, model in self._model_workers.items():
+            for _, worker in self._model_workers.items():
                 #print(f"Model {i} working")
                 # need to use threading to async get all 
                 response = communicate_message(worker, ('step',tuple()))
         else:
             raise WorkerException("Not all worker models returned success")
+        
+        
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""

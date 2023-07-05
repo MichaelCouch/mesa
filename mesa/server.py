@@ -66,6 +66,9 @@ def model_worker_server(port, model):
             client_socket.close()
             break
 
+    if model.grid is not None:
+        model.grid.__exit__(None, None, None)
+        
     log.info(f"Server on port {port} shutting down")
 
 

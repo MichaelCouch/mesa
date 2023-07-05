@@ -1048,8 +1048,10 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
     #    ContinuousSpace._invalidate_agent_cache(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._owner and self._shm is not None:
+        if self._shm is not None:
             self._shm.close()
+            if self._owner:
+                self._shm.unlink()
         return True
 
 class NetworkGrid:

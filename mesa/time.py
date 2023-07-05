@@ -330,11 +330,11 @@ class ParallelRandomActivationByType(RandomActivationByType):
         """
         # To be able to remove and/or add agents during stepping
         # it's necessary to cast the keys view to a list.
-        type_keys: list[type[Agent]] = list(self.agents_by_type.keys())
-        if shuffle_types:
-            self.model.random.shuffle(type_keys)
-        for agent_class in type_keys:
-            self.step_type(agent_class, shuffle_agents=shuffle_agents)
+        #type_keys: list[type[Agent]] = list(self.agents_by_type.keys())
+        #if shuffle_types:
+        #    self.model.random.shuffle(type_keys)
+        #for agent_class in type_keys:
+        #    self.step_type(agent_class, shuffle_agents=shuffle_agents)
         self.steps += 1
         self.time += 1
 
