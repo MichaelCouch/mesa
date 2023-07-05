@@ -37,7 +37,7 @@ The default DataCollector here makes several assumptions:
 import itertools
 import types
 from operator import attrgetter
-
+import concurrent.futures
 import pandas as pd
 
 from mesa.server import communicate_message
@@ -288,8 +288,17 @@ class ParallelDataCollector(DataCollector):
         DataCollector.__init__(self, *args, **kwargs)
 
     def collect(self, master_model):
-        for _, worker in master_model._model_workers.items():
-            communicate_message(worker, ('datacollector.collect', ('target_model_self',)))
+        #for _, worker in master_model._model_workers.items():
+        #    communicate_message(worker, ('datacollector.collect', ('target_model_self',)))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
+            future_to_responses = {executor.submit(communicate_message, worker, ('datacollector.collect', ('target_model_self',))): worker for worker in master_model._model_workers.values()}
+            for future in concurrent.futures.as_completed(future_to_responses):
+                worker = future_to_responses[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (worker, exc))
 
         if self.model_reporters:
             for var, reporter in self.model_reporters.items():
@@ -312,6 +321,14 @@ class ParallelDataCollector(DataCollector):
             for worker in master_model._model_workers.values():
                 # Assume worker models have run the same number of steps as 
                 agent_records += communicate_message(worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))) 
+            with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
+                future_to_responses = {executor.submit(communicate_message, worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))): worker for worker in master_model._model_workers.values()}
+                for future in concurrent.futures.as_completed(future_to_responses):
+                    worker = future_to_responses[future]
+                    try:
+                        agent_records += future.result()
+                    except Exception as exc:
+                        print('%r generated an exception: %s' % (worker, exc))
             self._agent_records[master_model.schedule.steps] = agent_records
 
 

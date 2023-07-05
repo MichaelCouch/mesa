@@ -89,8 +89,9 @@ def receive(socket_):
     received = 0
     while received < length:
         to_get = min(1024, length - received)
-        data += socket_.recv(to_get)
-        received += to_get
+        new_data = socket_.recv(to_get)
+        data += new_data
+        received += len(new_data)
     response = pickle.loads(data)
     if isinstance(response, Exception):
          log_traceback(response)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import multiprocessing
+import concurrent.futures 
 import socket
 import time
 
@@ -16,6 +17,7 @@ from typing import Any
 from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
 from mesa.server import model_worker_server, communicate_message
+from tqdm import tqdm
 
 class WorkerException(Exception):
 
@@ -24,8 +26,6 @@ class WorkerException(Exception):
     def __init__(self, *args, **kwargs):
         """TODO: to be defined. """
         Exception.__init__(self, *args, **kwargs)
-
-        
 
 
 class ModelMaster:
@@ -94,23 +94,40 @@ class ModelMaster:
 
     def step(self) -> None:
         """Step each worker node. Fill in here."""
-        model_statuses = []
         self.schedule.step() # Possibly the below should be included in schedule.step?
-        for _, worker in self._model_workers.items():
-            response = communicate_message(worker, ('advance', tuple()))
-            # need to use threading to async get all 
-            model_statuses.append(response is None)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
+            future_to_responses = {executor.submit(communicate_message, worker, ('advance', tuple())): worker for worker in self._model_workers.values()}
+            for future in concurrent.futures.as_completed(future_to_responses):
+                worker = future_to_responses[future]
+                try:
+                    data = future.result()
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (worker, exc))
 
-        if all(model_statuses):
-            # Allow the models to resolve things amongst themselves
-            for _, worker in self._model_workers.items():
-                #print(f"Model {i} working")
-                # need to use threading to async get all 
-                response = communicate_message(worker, ('step',tuple()))
-        else:
-            raise WorkerException("Not all worker models returned success")
-        
-        
+
+        #model_statuses = []
+        #for _, worker in self._model_workers.items():
+        #    response = communicate_message(worker, ('advance', tuple()))
+        #    # need to use threading to async get all 
+        #    model_statuses.append(response is None)
+
+        #if all(model_statuses):
+        #    # Allow the models to resolve things amongst themselves
+        #    for _, worker in self._model_workers.items():
+        #        #print(f"Model {i} working")
+        #        # need to use threading to async get all 
+        #        response = communicate_message(worker, ('step',tuple()))
+        #else:
+        #    raise WorkerException("Not all worker models returned success")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
+            future_to_responses = {executor.submit(communicate_message, worker, ('step', tuple())): worker for worker in self._model_workers.values()}
+            for future in concurrent.futures.as_completed(future_to_responses):
+                worker = future_to_responses[future]
+                try:
+                    data = future.result()
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (worker, exc))
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""
@@ -165,7 +182,7 @@ class ModelMaster:
     def assign_scheduled_agents_to_child_models(self, random=True):
         """Assign agents to each of the child_models."""
         agents_to_cleanup = []
-        for key, agent in self.schedule._agents.items():
+        for key, agent in tqdm(self.schedule._agents.items(), total=len(self.schedule._agents), desc="Assigning agents to workers"):
             k = self.random.randint(0, len(self._child_models)-1)
             self._child_models[k].schedule.add(agent)
             agent.model = self._child_models[k]
@@ -178,7 +195,7 @@ class ModelMaster:
     def link_grid_to_child_models(self):
         """Link the grid to each of the child_models"""
         grid = self.grid
-        for key, worker_model in self._child_models.items():
+        for worker_model in self._child_models.values():
             # TODO: remove dependency on grid private attributes _xxx...
             worker_model.link_shared_memory_grid(grid)
 
