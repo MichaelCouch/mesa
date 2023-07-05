@@ -62,8 +62,12 @@ class ModelMaster:
     def __exit__(self, exc_type, exc_val, exc_tb):
         for _, model in self._model_workers.items():
             communicate_message(model, 'kill')
+        #for i in tqdm(range(10), total=10, desc="Allowing worker models to shut down"):
+        #    time.sleep(1)
+        for k, model in tqdm(self._model_workers.items(), total=len(self._model_workers), desc="Shutting down workers"):
             model['connection'].close()
-            model['process'].terminate()
+            model['process'].join()
+            #model['process'].terminate()
 
         if hasattr(self, 'grid'):
             self.grid.__exit__(exc_type, exc_val, exc_tb)
@@ -73,9 +77,8 @@ class ModelMaster:
     def initialize_worker_processes(self) -> None:
         """ Initialize worker processes
         """
-        import os
         ports = [self._port + i for i in range(self._n_workers)]
-        for i in range(self._n_workers):
+        for i in tqdm(range(self._n_workers), total=self._n_workers, desc="Initializing worker processes"):
             port = ports[i]
             process = multiprocessing.Process(target=model_worker_server, args=(port,self._child_models[i]))
             process.start()

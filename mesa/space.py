@@ -898,12 +898,12 @@ class ContinuousSpace:
                             neighbors of a given agent, True will include that
                             agent in the results.
         """
-        if self._agent_points is None:
-            self._build_agent_cache()
+        #if self._agent_points is None:
+        #    self._build_agent_cache()
 
         deltas = np.abs(self._agent_points - np.array(pos))
-        if self.torus:
-            deltas = np.minimum(deltas, self.size - deltas)
+        #if self.torus:
+        #    deltas = np.minimum(deltas, self.size - deltas)
         dists = deltas[:, 0] ** 2 + deltas[:, 1] ** 2
 
         (idxs,) = np.where(dists <= radius**2)
@@ -1009,26 +1009,24 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
         self._agent_points = np.ndarray(shape=(n_agents,2), dtype=float, buffer=self._shm.buf)
         for idx, agent_id in enumerate(self._agents):
             agent = self._agents[agent_id]
+            agent.grid_position_index = idx
             self._index_to_agent[idx] = agent_id
             self._agent_points[idx] = np.array(agent.position)
         #self.grid._agent_id_to_grid_index = {agent.unique_id: idx for agent, idx in self.grid._agent_to_index}
         #self.grid_index_to_agent_id = {idx: agent.unique_id for idx, agent in self.grid._index_to_agent}
+        scipy.spatial.KDTree.query_ball_point
 
-    def move_agent(self, agent: Agent, pos: FloatCoordinate) -> None:
+    def move_agent(self, agent: Agent, pos: FloatCoordinate, idx=None) -> None:
         """Move an agent from its current position to a new position.
 
         Args:
             agent: The agent object to move.
             pos: Coordinate tuple to move the agent to.
         """
-        pos = self.torus_adj(pos)
-        agent.pos = pos
 
-        if self._agent_points is not None:
-            # instead of invalidating the full cache,
-            # apply the move to the cached values
+        if idx is not None:
             idx = self._agent_to_index[agent.unique_id]
-            self._agent_points[idx] = pos
+        self._agent_points[idx] = agent.pos
 
     def remove_agent(self, agent: Agent) -> None:
         raise NotImplementedError("remove_agent not implemented for SharedMemoryContinuousSpace")
