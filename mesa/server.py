@@ -65,6 +65,8 @@ def model_worker_server(port, model):
 
         send(response, client_socket)
 
+        profiler.dump_stats(f"server_{os.getpid()}.prof")
+        profiler.enable()
         if received == 'kill':
             time.sleep(1)
             client_socket.close()

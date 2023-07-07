@@ -287,9 +287,10 @@ class ParallelDataCollector(DataCollector):
         """TODO: to be defined. """
         DataCollector.__init__(self, *args, **kwargs)
 
-    def collect(self, master_model):
+    def collect(self, master_model, collect_from_workers=False):
         #for _, worker in master_model._model_workers.items():
         #    communicate_message(worker, ('datacollector.collect', ('target_model_self',)))
+
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
             future_to_responses = {executor.submit(communicate_message, worker, ('datacollector.collect', ('target_model_self',))): worker for worker in master_model._model_workers.values()}
@@ -316,13 +317,13 @@ class ParallelDataCollector(DataCollector):
                 else:
                     self.model_vars[var].append(reporter())
 
-        if self.agent_reporters:
+        if self.agent_reporters and collect_from_workers:
             agent_records = []
             for worker in master_model._model_workers.values():
                 # Assume worker models have run the same number of steps as 
                 agent_records += communicate_message(worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))) 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
-                future_to_responses = {executor.submit(communicate_message, worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))): worker for worker in master_model._model_workers.values()}
+            with concurrent.futures.ProcessPoolExecutor(max_workers=master_model._n_workers) as executor:
+                future_to_responses = {executor.submit(communicate_message, {'connection': worker['connection']}, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))): worker for worker in master_model._model_workers.values()}
                 for future in concurrent.futures.as_completed(future_to_responses):
                     worker = future_to_responses[future]
                     try:

@@ -41,6 +41,7 @@ import random
 import string
 from warnings import warn
 
+from scipy.spatial import KDTree
 import networkx as nx
 import numpy as np
 import numpy.typing as npt
@@ -827,6 +828,7 @@ class ContinuousSpace:
         self.torus = torus
 
         self._agent_points: npt.NDArray[FloatCoordinate] | None = None
+        self._spatial_index: KDTree | None = None
         self._index_to_agent: dict[int, Agent] = {}
         self._agent_to_index: dict[Agent, int | None] = {}
 
@@ -839,7 +841,19 @@ class ContinuousSpace:
         # Since dicts are ordered by insertion, we can iterate through agents keys
         self._agent_points = np.array([agent.pos for agent in self._agent_to_index])
 
-    def _invalidate_agent_cache(self):
+    def _update_spatial_index(self):
+        if self._agent_points is None:
+           self._build_agent_cache()
+        self._spatial_index = KDTree(
+            self._agent_points,
+            compact_nodes=True,
+            copy_data=True,
+            balanced_tree=True)
+
+    def invalidate_spatial_index(self):
+        self._spatial_index = None
+
+    def _invalidate_agent_cache(self): 
         """Clear cached data of agents and positions in the space."""
         self._agent_points = None
         self._index_to_agent = {}
@@ -886,7 +900,7 @@ class ContinuousSpace:
         agent.pos = None
 
     def get_neighbors(
-        self, pos: FloatCoordinate, radius: float, include_center: bool = True
+        self, pos: FloatCoordinate, radius: float
     ) -> list[Agent]:
         """Get all agents within a certain radius.
 
@@ -898,17 +912,22 @@ class ContinuousSpace:
                             neighbors of a given agent, True will include that
                             agent in the results.
         """
-        #if self._agent_points is None:
-        #    self._build_agent_cache()
+        if self._agent_points is None:
+            self._build_agent_cache()
+        if self._spatial_index is None:
+            self._update_spatial_index()
 
-        deltas = np.abs(self._agent_points - np.array(pos))
-        #if self.torus:
-        #    deltas = np.minimum(deltas, self.size - deltas)
-        dists = deltas[:, 0] ** 2 + deltas[:, 1] ** 2
+        #deltas = np.abs(self._agent_points - np.array(pos))
+        ##if self.torus:
+        ##    deltas = np.minimum(deltas, self.size - deltas)
+        #dists = deltas[:, 0] ** 2 + deltas[:, 1] ** 2
 
-        (idxs,) = np.where(dists <= radius**2)
+        #(idxs,) = np.where(dists <= radius**2)
+        idxs = self._spatial_index.query_ball_point(pos, r=radius)
+        # could parallelize this if pos is an array!
+
         neighbors = [
-            self._index_to_agent[x] for x in idxs if include_center or dists[x] > 0
+            self._index_to_agent[x] for x in idxs
         ]
         return neighbors
 
@@ -921,7 +940,7 @@ class ContinuousSpace:
 
         Args:
             pos_1, pos_2: Coordinate tuples for both points.
-        """
+        """ 
         one = np.array(pos_1)
         two = np.array(pos_2)
         heading = two - one
@@ -1014,7 +1033,6 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
             self._agent_points[idx] = np.array(agent.position)
         #self.grid._agent_id_to_grid_index = {agent.unique_id: idx for agent, idx in self.grid._agent_to_index}
         #self.grid_index_to_agent_id = {idx: agent.unique_id for idx, agent in self.grid._index_to_agent}
-        scipy.spatial.KDTree.query_ball_point
 
     def move_agent(self, agent: Agent, pos: FloatCoordinate, idx=None) -> None:
         """Move an agent from its current position to a new position.
@@ -1024,7 +1042,7 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
             pos: Coordinate tuple to move the agent to.
         """
 
-        if idx is not None:
+        if idx is None:
             idx = self._agent_to_index[agent.unique_id]
         self._agent_points[idx] = agent.pos
 
