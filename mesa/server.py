@@ -41,7 +41,6 @@ def handle_message(model, message):
         return response
 
     except Exception as e:
-        raise
         log_traceback(e)
         response = e
         return response
@@ -101,8 +100,8 @@ def receive(socket_):
         received += len(new_data)
     response = pickle.loads(data)
     if isinstance(response, Exception):
-         log_traceback(response)
-         raise response
+        log_traceback(response)
+        raise response
     return response
 
 

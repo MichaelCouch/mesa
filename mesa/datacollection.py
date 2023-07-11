@@ -269,6 +269,10 @@ class DataCollector:
         )
         return df
 
+    def get_agent_vars_dataframe_to_file(self, filename):
+        df = self.get_agent_vars_dataframe()
+        df.to_pickle(filename)
+
     def get_table_dataframe(self, table_name):
         """Create a pandas DataFrame from a particular table.
 
@@ -319,11 +323,17 @@ class ParallelDataCollector(DataCollector):
 
         if self.agent_reporters and collect_from_workers:
             agent_records = []
-            for worker in master_model._model_workers.values():
-                # Assume worker models have run the same number of steps as 
-                agent_records += communicate_message(worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))) 
+            #for worker in master_model._model_workers.values():
+            #    # Assume worker models have run the same number of steps as 
+            #    agent_records += communicate_message(worker, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))) 
+            method, args = 'datacollector._agent_records.__getitem__', (master_model.schedule.steps,)
             with concurrent.futures.ProcessPoolExecutor(max_workers=master_model._n_workers) as executor:
-                future_to_responses = {executor.submit(communicate_message, {'connection': worker['connection']}, ('datacollector._agent_records.__getitem__', (master_model.schedule.steps,))): worker for worker in master_model._model_workers.values()}
+                future_to_responses = {
+                    executor.submit(
+                        communicate_message, 
+                        {'connection': worker['connection']}, (method, args)
+                    ): worker for worker in master_model._model_workers.values()
+                }
                 for future in concurrent.futures.as_completed(future_to_responses):
                     worker = future_to_responses[future]
                     try:
@@ -332,4 +342,25 @@ class ParallelDataCollector(DataCollector):
                         print('%r generated an exception: %s' % (worker, exc))
             self._agent_records[master_model.schedule.steps] = agent_records
 
+    def get_agent_vars_dataframe(self, master_model) -> pd.DataFrame:
+        agent_vars = []
+        method = 'datacollector.get_agent_vars_dataframe_to_file'
+        args = [(f"worker_data_{i}.pkl",) for i, worker in enumerate(master_model._model_workers.values())]
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
+            future_to_responses = {
+                executor.submit(
+                    communicate_message,
+                    {'connection': worker['connection']}, (method, args[i])
+                ): i for i, worker in enumerate(master_model._model_workers.values())
+            }
+            for future in concurrent.futures.as_completed(future_to_responses):
+                j = future_to_responses[future]
+                try:
+                    fname = args[j][0]
+                    df = pd.read_pickle(fname)
+                    agent_vars.append(df)
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (j, exc))
+        df = pd.concat(agent_vars)
+        return df

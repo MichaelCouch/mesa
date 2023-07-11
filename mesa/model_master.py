@@ -98,6 +98,8 @@ class ModelMaster:
     def step(self) -> None:
         """Step each worker node. Fill in here."""
         self.schedule.step() # Possibly the below should be included in schedule.step?
+
+        # Advance
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
             future_to_responses = {executor.submit(communicate_message, worker, ('advance', tuple())): worker for worker in self._model_workers.values()}
             for future in concurrent.futures.as_completed(future_to_responses):
@@ -107,22 +109,7 @@ class ModelMaster:
                 except Exception as exc:
                     print('%r generated an exception: %s' % (worker, exc))
 
-
-        #model_statuses = []
-        #for _, worker in self._model_workers.items():
-        #    response = communicate_message(worker, ('advance', tuple()))
-        #    # need to use threading to async get all 
-        #    model_statuses.append(response is None)
-
-        #if all(model_statuses):
-        #    # Allow the models to resolve things amongst themselves
-        #    for _, worker in self._model_workers.items():
-        #        #print(f"Model {i} working")
-        #        # need to use threading to async get all 
-        #        response = communicate_message(worker, ('step',tuple()))
-        #else:
-        #    raise WorkerException("Not all worker models returned success")
-
+        # Step
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
             future_to_responses = {executor.submit(communicate_message, worker, ('step', tuple())): worker for worker in self._model_workers.values()}
             for future in concurrent.futures.as_completed(future_to_responses):
