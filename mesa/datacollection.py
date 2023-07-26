@@ -36,10 +36,10 @@ The default DataCollector here makes several assumptions:
 """
 import itertools
 import types
+import os
 from operator import attrgetter
 import concurrent.futures
 import pandas as pd
-
 from mesa.server import communicate_message
 
 class DataCollector:
@@ -343,9 +343,11 @@ class ParallelDataCollector(DataCollector):
             self._agent_records[master_model.schedule.steps] = agent_records
 
     def get_agent_vars_dataframe(self, master_model) -> pd.DataFrame:
+        tmp_data_dir = 'output_data/tmp'
+        os.makedirs(tmp_data_dir,exist_ok=True)
         agent_vars = []
         method = 'datacollector.get_agent_vars_dataframe_to_file'
-        args = [(f"worker_data_{i}.pkl",) for i, worker in enumerate(master_model._model_workers.values())]
+        args = [(f"{tmp_data_dir}/worker_data_{i}.pkl",) for i, worker in enumerate(master_model._model_workers.values())]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
             future_to_responses = {
@@ -359,6 +361,7 @@ class ParallelDataCollector(DataCollector):
                 try:
                     fname = args[j][0]
                     df = pd.read_pickle(fname)
+                    os.remove(fname)
                     agent_vars.append(df)
                 except Exception as exc:
                     print('%r generated an exception: %s' % (j, exc))

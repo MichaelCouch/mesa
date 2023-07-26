@@ -3,7 +3,7 @@ import traceback
 from logger import logging as log
 import pickle
 import time
-import cProfile
+#import cProfile
 import os
 
 def log_traceback(ex, ex_traceback=None):
@@ -46,8 +46,8 @@ def handle_message(model, message):
         return response
 
 def model_worker_server(port, model):
-    profiler = cProfile.Profile()
-    profiler.enable()
+    #profiler = cProfile.Profile()
+    #profiler.enable()
     server_socket = get_server_socket(port)
     client_socket, client_address = server_socket.accept()
 
@@ -64,8 +64,8 @@ def model_worker_server(port, model):
 
         send(response, client_socket)
 
-        profiler.dump_stats(f"server_{os.getpid()}.prof")
-        profiler.enable()
+        #profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")
+        #profiler.enable()
         if received == 'kill':
             time.sleep(1)
             client_socket.close()
@@ -74,8 +74,8 @@ def model_worker_server(port, model):
     if model.grid is not None:
         model.grid.__exit__(None, None, None)
     log.info(f"Server on port {port} shutting down")
-    profiler.disable()
-    profiler.dump_stats(f"server_{os.getpid()}.prof")
+    #profiler.disable()
+    #profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")
 
 
 def send(data, socket_):
