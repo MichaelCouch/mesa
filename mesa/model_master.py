@@ -7,26 +7,16 @@ Core Objects: ModelMaster"""
 from __future__ import annotations
 
 import random
-import multiprocessing
-import concurrent.futures 
-import socket
+import concurrent.futures
 import time
 
 from typing import Any
 
 from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
-from mesa.server import model_worker_server, communicate_message
+from mesa.server import initialize_worker, shutdown_worker, communicate_message
 from tqdm import tqdm
-
-class WorkerException(Exception):
-
-    """Docstring for WorkerException. """
-
-    def __init__(self, *args, **kwargs):
-        """TODO: to be defined. """
-        Exception.__init__(self, *args, **kwargs)
-
+import logging as log
 
 class ModelMaster:
     """A parallel worker managing computation and messaging with other child_models"""
@@ -38,7 +28,7 @@ class ModelMaster:
         obj.random = random.Random(obj._seed)
         return obj
 
-    def __init__(self, n_workers: int, WorkerModel: type, port=None, *args, **kwargs: Any) -> None:
+    def __init__(self, n_workers: int, WorkerModel: type, dump_on_keyboard_interrupt: bool = True, *args, **kwargs: Any) -> None:
         """Create a new model. Overload this method with the actual code to
         start the model.
 
@@ -50,43 +40,37 @@ class ModelMaster:
         self.running = True
         self.schedule = None
         self.current_id = 0
-        self._port = 8000 if port is None else port
         self._n_workers = n_workers
         self._child_models = {i: WorkerModel(*args, **kwargs) for i in range(n_workers)}
         self._model_workers = {}
         self.schedule_allocation = {}
+        self.grid = None
+        self._dump_on_interrupt = dump_on_keyboard_interrupt
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        for _, model in self._model_workers.items():
-            communicate_message(model, 'kill')
-        #for i in tqdm(range(10), total=10, desc="Allowing worker models to shut down"):
-        #    time.sleep(1)
-        for k, model in tqdm(self._model_workers.items(), total=len(self._model_workers), desc="Shutting down workers"):
-            model['connection'].close()
-            model['process'].join()
-            #model['process'].terminate()
+        if isinstance(exc_type, KeyboardInterrupt) and self._dump_on_keyboard_interrupt:
+            log.info("Keyboard interrupt detected: dumping data")
+            df = self.datacollector.get_agent_vars_dataframe()
+            df.to_csv("agent_data.csv")
+        for worker in tqdm(self._model_workers.values(), total=len(self._model_workers), desc="Shutting down workers"):
+            shutdown_worker(worker)
 
         if hasattr(self, 'grid'):
             self.grid.__exit__(exc_type, exc_val, exc_tb)
+        if exc_type is not None:
+            return False
         return True
 
 
-    def initialize_worker_processes(self) -> None:
+    def initialize_workers(self) -> None:
         """ Initialize worker processes
         """
-        ports = [self._port + i for i in range(self._n_workers)]
         for i in tqdm(range(self._n_workers), total=self._n_workers, desc="Initializing worker processes"):
-            port = ports[i]
-            process = multiprocessing.Process(target=model_worker_server, args=(port,self._child_models[i]))
-            process.start()
-            time.sleep(2)
-            server_address = ('localhost', port)
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect(server_address)
-            self._model_workers[i] = {'address': server_address, 'process': process, 'connection': client_socket}
+            worker = initialize_worker(self._child_models[i])
+            self._model_workers[i] = worker
 
     def run_model(self) -> None:
         """Run the model until the end condition is reached. Overload as

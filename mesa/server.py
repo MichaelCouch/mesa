@@ -1,10 +1,26 @@
-import socket
 import traceback
-from logger import logging as log
 import pickle
 import time
 #import cProfile
 import os
+import multiprocessing
+import logging as log
+import signal
+
+def ignore_signal_handler(signal, frame):
+    # Use this to allow the other mechanisms to allow graceful shutdown
+    log.debug(f"Ignoring signal {signal}")
+
+
+class WorkerException(Exception):
+
+    """Docstring for WorkerException. """
+
+    def __init__(self, *args, **kwargs):
+        """TODO: to be defined. """
+        Exception.__init__(self, *args, **kwargs)
+
+
 
 def log_traceback(ex, ex_traceback=None):
     ex_traceback = ex.__traceback__
@@ -12,14 +28,38 @@ def log_traceback(ex, ex_traceback=None):
                  traceback.format_exception(ex.__class__, ex, ex_traceback)]
     log.error(tb_lines)
 
+def shutdown_worker(worker):
+    """shutdown the worker."""
+    response = communicate_message(worker, 'kill')
+    # This part might be overkill - joining the process is probably sufficient
+    assert response == 0, "Unexpected response to kill command detected"
+    # Wait for the worker to close the connection
+    try:
+        worker['connection'].recv()
+    except EOFError:
+        # This is expected when the worker closes the pipe
+        worker['connection'].close()
+        worker['process'].join()
+        return
 
-def get_server_socket(port):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(('localhost', port))
-    server_socket.listen(1)
-    log.info(f"Server process listening on port {port}")
-    return server_socket
+    raise RuntimeError(f"Received unexpected data while killing worker process")
 
+
+def initialize_worker(child_model):
+    """Create a worker process and return the connection details
+    :returns: connection details for the worker
+
+    """
+    parent_pipe, child_pipe = multiprocessing.Pipe()
+    process = multiprocessing.Process(
+        target=model_worker_server,
+        args=(child_pipe, child_model)
+    )
+    process.start()
+    worker = {'process': process, 'connection': parent_pipe}
+    if communicate_message(worker, "Ready?"):
+        return worker
+    raise WorkerException("Child worker failed to initialize")
 
 def handle_message(model, message):
     try:
@@ -45,60 +85,45 @@ def handle_message(model, message):
         response = e
         return response
 
-def model_worker_server(port, model):
+def model_worker_server(pipe, model):
+    signal.signal(signal.SIGINT, ignore_signal_handler)
     #profiler = cProfile.Profile()
     #profiler.enable()
-    server_socket = get_server_socket(port)
-    client_socket, client_address = server_socket.accept()
-
+    log.debug(f"Child model server {model} running")
     while True:
-        # Handle client request and respond here  
-        received = receive(client_socket)
-        log.info(f"Server {port} received: {received}")
+        # Receieve instructions and respond
+        received = receive(pipe)
+        log.debug(f"Child model server {model} received: {received}")
 
         if received == 'kill':
-            log.info(f"Server {port} received kill notification")
-            response = 'OK'
+            log.debug(f"Child model server {model} kill notification")
+            response = 0
+        elif received == 'Ready?':
+            response = True
         else:
             response = handle_message(model, received)
 
-        send(response, client_socket)
+        send(response, pipe)
 
         #profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")
         #profiler.enable()
         if received == 'kill':
-            time.sleep(1)
-            client_socket.close()
+            pipe.close()
             break
 
     if model.grid is not None:
         model.grid.__exit__(None, None, None)
-    log.info(f"Server on port {port} shutting down")
+    log.debug(f"Child model server {model} shutting down")
     #profiler.disable()
     #profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")
 
 
-def send(data, socket_):
-    content = pickle.dumps(data)
-    header = len(content).to_bytes(8, 'little')
-    response = header + content
-    socket_.send(response)
+def send(data, pipe):
+    pipe.send(data)
 
 
-def receive(socket_):
-    response = b''
-    # Wait for data 
-    header = socket_.recv(8)
-    # decode the response
-    length = int.from_bytes(header, 'little')
-    data = b''
-    received = 0
-    while received < length:
-        to_get = min(1024, length - received)
-        new_data = socket_.recv(to_get)
-        data += new_data
-        received += len(new_data)
-    response = pickle.loads(data)
+def receive(pipe):
+    response = pipe.recv()
     if isinstance(response, Exception):
         log_traceback(response)
         raise response
@@ -106,7 +131,7 @@ def receive(socket_):
 
 
 def communicate_message(worker, message):
-    client_socket = worker['connection']
-    send(message, client_socket)
-    response = receive(client_socket)
+    pipe = worker['connection']
+    send(message, pipe)
+    response = receive(pipe)
     return response
