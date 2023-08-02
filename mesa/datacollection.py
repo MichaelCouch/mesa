@@ -301,10 +301,6 @@ class ParallelDataCollector(DataCollector):
         DataCollector.__init__(self, *args, **kwargs)
 
     def collect(self, master_model, collect_from_workers=False):
-        #for _, worker in master_model._model_workers.items():
-        #    communicate_message(worker, ('datacollector.collect', ('target_model_self',)))
-
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
             future_to_responses = {executor.submit(communicate_message, worker, ('datacollector.collect', ('target_model_self',))): worker for worker in master_model._model_workers.values()}
             for future in concurrent.futures.as_completed(future_to_responses):
@@ -313,6 +309,7 @@ class ParallelDataCollector(DataCollector):
                     future.result()
                 except Exception as exc:
                     print('%r generated an exception: %s' % (worker, exc))
+                    raise exc
 
         if self.model_reporters:
             for var, reporter in self.model_reporters.items():
