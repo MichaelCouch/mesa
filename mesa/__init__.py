@@ -13,6 +13,7 @@ from mesa.batchrunner import batch_run
 from mesa.datacollection import DataCollector
 from mesa.model import Model
 from mesa.model_master import ModelMaster
+from mesa.attribute import AttributeCollection, SharedMemoryAttributeCollection
 
 __all__ = [
     "Model",
@@ -23,6 +24,8 @@ __all__ = [
     "visualization",
     "DataCollector",
     "batch_run",
+    "AttributeCollection",
+    "SharedMemoryAttributeCollection",
 ]
 
 __title__ = "mesa"
