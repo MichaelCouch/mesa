@@ -38,17 +38,24 @@ class AttributeCollection:
         self._cursor = 0
         self._agent_to_index: dict[str, int | None] = {}
         self._index_to_agent: dict[int, str] = {}
-        self.attributes = {name: data.copy() for name, data in attributes.items()} # shallow copy the internal dict
-        self._initialize_attribute_arrays()
+        self.attributes = {}
+        self._initialize_attribute_arrays(attributes)
 
-    def _initialize_attribute_arrays(self):
+    def _initialize_attribute_arrays(self, attributes):
         """Create the numpy array used to store the attributes
         :returns: TODO
 
         """
-        for data in self.attributes.values():
-            dtype = data['dtype']
-            data['array'] = np.ndarray(shape=(self.size,), dtype=dtype)
+        for name, metadata in attributes.items():
+            self.add_attribute(name, metadata)
+
+    def add_attribute(self, name, metadata):
+        assert name not in self.attributes, f'attribute {name} already registered'
+        metadata = metadata.copy()  # shallow copy only
+        dtype = metadata['dtype']
+        metadata['array'] = np.ndarray(shape=(self.size,), dtype=dtype)
+        self.attributes[name] = metadata
+
 
     def __setitem__(self, agent_id_attr: (str, str), value: float) -> None:
         """Place a new agent in the space.
@@ -86,7 +93,7 @@ class AttributeCollection:
         agent_id, attr_name = (agent_id_attr, None) if len(agent_id_attr) == 1 else agent_id_attr
         idx = self._agent_to_index[agent_id]
         if attr_name is None:
-              return {name: data['array'][iter_cursor] for name, data in self.attributes.items()}
+            return {name: data['array'][idx] for name, data in self.attributes.items()}
         return self.attributes[attr_name]['array'][idx]
 
     def __delitem__(self, agent_id: str) -> None:
@@ -158,20 +165,17 @@ class SharedMemoryAttributeCollection(AttributeCollection):
                     shm.unlink()
         return True
 
-    def _initialize_attribute_arrays(self):
-        """Create the numpy array used to store the attributes
-        :returns: TODO
-
-        """
-        for data in self.attributes.values():
-            if 'handle' not in data:
-                data['handle'] = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(16))
-                data['owner'] = True
-            else:
-                data['owner'] = False
-            dtype, handle, create = data['dtype'], data['handle'], data['owner']
-
-            byte_array_size = self.size * np.dtype(dtype).itemsize
-            data['shm'] = SharedMemory(name=handle, size=byte_array_size, create=create)
-            buffer = data['shm'].buf
-            data['array'] = np.ndarray(shape=(self.size,), dtype=dtype, buffer=buffer)
+    def add_attribute(self, name, metadata):
+        assert name not in self.attributes, f'attribute {name} already registered'
+        metadata = metadata.copy()  # shallow copy only
+        if 'handle' not in metadata:
+            metadata['handle'] = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(16))
+            metadata['owner'] = True
+        else:
+            metadata['owner'] = False
+        dtype, handle, create = metadata['dtype'], metadata['handle'], metadata['owner']
+        byte_array_size = self.size * np.dtype(dtype).itemsize
+        metadata['shm'] = SharedMemory(name=handle, size=byte_array_size, create=create)
+        buffer = metadata['shm'].buf
+        metadata['array'] = np.ndarray(shape=(self.size,), dtype=dtype, buffer=buffer)
+        self.attributes[name] = metadata
