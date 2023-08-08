@@ -113,6 +113,8 @@ def model_worker_server(pipe, model):
 
     if model.grid is not None:
         model.grid.__exit__(None, None, None)
+    for attr_collection in model._shared_attributes.values():
+        attr_collection.__exit__(None, None, None)
     log.debug(f"Child model server {model} shutting down")
     #profiler.disable()
     #profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")

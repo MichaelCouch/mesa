@@ -15,6 +15,8 @@ from typing import Any
 from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
 from mesa.server import initialize_worker, shutdown_worker, communicate_message
+from mesa.space import SharedMemoryContinuousSpace
+from mesa.attribute import SharedMemoryAttributeCollection
 from tqdm import tqdm
 import logging as log
 
@@ -60,6 +62,12 @@ class ModelMaster:
 
         if hasattr(self, 'grid'):
             self.grid.__exit__(exc_type, exc_val, exc_tb)
+        if exc_type is not None:
+            return False
+        
+        if hasattr(self, '_shared_attributes'):
+            for attribute_collection in self._shared_attributes.values():
+                attribute_collection.__exit__(exc_type, exc_val, exc_tb)
         if exc_type is not None:
             return False
         return True
@@ -153,11 +161,15 @@ class ModelMaster:
         # Collect data for the first time during initialization.
         self.datacollector.collect(self)
 
-    def assign_scheduled_agents_to_child_models(self, random=True):
-        """Assign agents to each of the child_models."""
+    def assign_scheduled_agents_to_child_models(self, allocator=None):
+        """Assign agents to each of the child_models.
+           allocator: function agents to workers: (agent, n_workers) |-> {0, 1, ..., n_workers-1}."""
         agents_to_cleanup = []
         for key, agent in tqdm(self.schedule._agents.items(), total=len(self.schedule._agents), desc="Assigning agents to workers"):
-            k = self.random.randint(0, len(self._child_models)-1)
+            if allocator is not None:
+                k = allocator(agent, len(self._child_models))
+            else:
+                k = self.random.randint(0, len(self._child_models)-1)
             self._child_models[k].schedule.add(agent)
             agent.model = self._child_models[k]
             self.schedule_allocation[key] = {'worker': k}
@@ -167,9 +179,36 @@ class ModelMaster:
             self.schedule.remove(agent)
 
     def link_grid_to_child_models(self):
+        # Move this to city implementation or vice versa?
         """Link the grid to each of the child_models"""
         grid = self.grid
         for worker_model in self._child_models.values():
             # TODO: remove dependency on grid private attributes _xxx...
             worker_model.link_shared_memory_grid(grid)
+
+    def link_shared_attributes_to_child_models(self):
+        """Link the grid to each of the child_models"""
+        attrs = self._shared_attributes
+        for worker_model in self._child_models.values():
+            worker_model.link_shared_attributes(attrs)
+
+class ParallelWorkerModel(Model):
+
+    """ A model with additional capabilities to support parallelization of computation"""
+
+    def link_shared_memory_grid(self, grid):
+        self.grid = SharedMemoryContinuousSpace(grid.x_max,grid.y_max,x_min=grid.x_min, y_min=grid.y_min,  name=grid.name, create=False, owner=False, torus=grid.torus)
+        self.grid._index_to_agent = grid._index_to_agent
+        self.grid._agent_to_index = grid._agent_to_index
+
+    def link_shared_attributes(self, attrs):
+        self._shared_attributes = {}
+        for cls, attr_collection in attrs.items():
+            attrs = SharedMemoryAttributeCollection(attr_collection.size)
+            for name, metadata in attr_collection.attributes.items():
+                new_metadata = metadata.copy()
+                del new_metadata['array']
+                new_metadata['owner'] = False
+                attrs.add_attribute(name, new_metadata)
+            self._shared_attributes[cls] = attrs
 

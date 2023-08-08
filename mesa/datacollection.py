@@ -278,7 +278,7 @@ class DataCollector:
         df = self.get_agent_vars_dataframe()
         if df.index.to_frame('Step').min().iloc[0] == 0 and os.path.exists(filename):
             log.warn("Offloading first agent records to existing file, but the file already exists")
-        df.to_csv(filename, mode='a', header=False, compression='infer')
+        df.to_csv(filename, mode='wb', header=False, compression={'method': 'gzip', 'compresslevel': 1, 'mtime': 1})
         # drop the data
         self._agent_records = {}
 
@@ -352,7 +352,7 @@ class ParallelDataCollector(DataCollector):
         os.makedirs(offload_directory,exist_ok=True)
         step = str.zfill(str(master_model.schedule.steps), 10)
         method = 'datacollector.offload_agent_vars_data'
-        args = [(f"{offload_directory}/worker_{str.zfill(str(i),2)}_step_{step}.tar.gz",) for i, worker in master_model._model_workers.items()]
+        args = [(f"{offload_directory}/worker_{str.zfill(str(i),2)}_step_{step}.gz",) for i, worker in master_model._model_workers.items()]
         with concurrent.futures.ThreadPoolExecutor(max_workers=master_model._n_workers) as executor:
             future_to_responses = {
                 executor.submit(

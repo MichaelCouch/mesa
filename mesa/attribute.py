@@ -26,7 +26,7 @@ class AttributeCollection:
     _shared = False
 
     def __init__(
-        self, size, attributes
+        self, size, attributes={}
     ) -> None:
         """Create a floating point attribute state space.
 
@@ -179,3 +179,11 @@ class SharedMemoryAttributeCollection(AttributeCollection):
         buffer = metadata['shm'].buf
         metadata['array'] = np.ndarray(shape=(self.size,), dtype=dtype, buffer=buffer)
         self.attributes[name] = metadata
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for attribute in self.attributes.values():
+            array = attribute['shm']
+            array.close()
+            if attribute['owner']:
+                array.unlink()
+        return True

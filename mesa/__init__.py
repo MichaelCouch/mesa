@@ -12,11 +12,12 @@ from mesa.agent import Agent
 from mesa.batchrunner import batch_run
 from mesa.datacollection import DataCollector
 from mesa.model import Model
-from mesa.model_master import ModelMaster
+from mesa.model_master import ModelMaster, ParallelWorkerModel
 from mesa.attribute import AttributeCollection, SharedMemoryAttributeCollection
 
 __all__ = [
     "Model",
+    "ParallelWorkerModel",
     "ModelMaster",
     "Agent",
     "time",
