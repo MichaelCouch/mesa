@@ -151,14 +151,7 @@ class ModelMaster:
             tables=tables,
             exclude_none_values=exclude_none_values,
         )
-        for key, model_worker in self._child_models.items():
-            model_worker.initialize_data_collector(
-                model_reporters=model_reporters,
-                agent_reporters=agent_reporters,
-                tables=tables,
-                exclude_none_values=exclude_none_values
-            )
-        # Collect data for the first time during initialization.
+        # Would be better if this passed through data collectors/reporters to the workers
         self.datacollector.collect(self)
 
     def assign_scheduled_agents_to_child_models(self, allocator=None):
