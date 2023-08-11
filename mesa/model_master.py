@@ -9,6 +9,7 @@ from __future__ import annotations
 import random
 import concurrent.futures
 import time
+import pickle
 
 from typing import Any
 
@@ -64,7 +65,7 @@ class ModelMaster:
             self.grid.__exit__(exc_type, exc_val, exc_tb)
         if exc_type is not None:
             return False
-        
+
         if hasattr(self, '_shared_attributes'):
             for attribute_collection in self._shared_attributes.values():
                 attribute_collection.__exit__(exc_type, exc_val, exc_tb)
@@ -72,6 +73,62 @@ class ModelMaster:
             return False
         return True
 
+    def __getstate__(self):
+        """Method to customize pickling behaviour
+        :returns: state
+
+        """
+        state = {
+            key: value for key, value in self.__dict__.items() if key not in ('_child_models', '_model_workers')
+        }
+        if '_model_workers' in state:
+            # Record this information instead
+            ...
+            ...
+            state['model_worker_data'] = {}
+        return state
+
+    def __setstate__(self, state):
+        """Method to customize unpickling behaviour
+        :returns: state
+
+        """
+        if '_model_workers' in state:
+            model_worker_data = state.pop('model_worker_data')
+            state['_model_workers'] = self._start_model_workers(model_worker_data)
+        else:
+            state['_model_workers'] = {}
+        self.__dict__.update(state)
+
+    def to_pickle(self, path):
+        log.info(f"Saving to {path}")
+        print(f"Saving to {path}")
+        child_models = self.__dict__.pop('_child_models')
+        print(f'{len(child_models)} popped')
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
+            pickle.dump(child_models,f)
+        self._child_models = child_models
+
+    @classmethod
+    def from_pickle(cls, path):
+        log.info(f"Loading from {path}")
+        print(f"Loading from {path}")
+        with open(path, 'rb') as f:
+            model_master = pickle.load(f)
+            child_models = pickle.load(f)
+            model_master._child_models = child_models
+        return model_master
+            
+
+    def _start_model_workers(self, model_worker_data):
+        """Restart model workers after serializations
+
+        :model_worker_data: TODO
+
+        """
+        # refactor to use initialize_workers or combine?
+        pass
 
     def initialize_workers(self) -> None:
         """ Initialize worker processes
@@ -185,6 +242,10 @@ class ModelMaster:
         for worker_model in self._child_models.values():
             worker_model.link_shared_attributes(attrs)
 
+        
+             
+        
+
 class ParallelWorkerModel(Model):
 
     """ A model with additional capabilities to support parallelization of computation"""
@@ -193,15 +254,18 @@ class ParallelWorkerModel(Model):
         self.grid = SharedMemoryContinuousSpace(grid.x_max,grid.y_max,x_min=grid.x_min, y_min=grid.y_min,  name=grid.name, create=False, owner=False, torus=grid.torus)
         self.grid._index_to_agent = grid._index_to_agent
         self.grid._agent_to_index = grid._agent_to_index
+        self.grid.initialize_array()
 
     def link_shared_attributes(self, attrs):
         self._shared_attributes = {}
         for cls, attr_collection in attrs.items():
             attrs = SharedMemoryAttributeCollection(attr_collection.size)
+            attrs.set_indexes(agent_to_index=attr_collection._agent_to_index)
             for name, metadata in attr_collection.attributes.items():
                 new_metadata = metadata.copy()
                 del new_metadata['array']
                 new_metadata['owner'] = False
                 attrs.add_attribute(name, new_metadata)
             self._shared_attributes[cls] = attrs
+
 

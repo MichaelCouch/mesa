@@ -40,6 +40,7 @@ from typing import (
 import random
 import string
 from warnings import warn
+import logging as log
 
 from scipy.spatial import KDTree
 import networkx as nx
@@ -1016,23 +1017,28 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
         self._owner = owner
         self.name = name
         self._create = create
-        self._agents = {}
+        #self._agents = {}
         self._shm = None
 
-
-    def _build_agent_cache(self):
-        """Cache agents positions to speed up neighbors calculations."""
+    def initialize_array(self):
+        if self._create:
+            log.info(f"Created shared memory array for grid {self.name}")
+            print(f"Created shared memory array for grid {self.name}")
         n_agents = len(self._agent_to_index)
         array_size = n_agents * 8 * 2 # 2 64 bit ints per agent
         self._shm = SharedMemory(name=self.name, size=array_size, create=self._create)
         self._agent_points = np.ndarray(shape=(n_agents,2), dtype=float, buffer=self._shm.buf)
-        for idx, agent_id in enumerate(self._agents):
-            agent = self._agents[agent_id]
+
+    def _build_agent_cache(self, model):
+        """Cache agents positions to speed up neighbors calculations."""
+        self.initialize_array()
+        #for idx, agent_id in enumerate(self._agents):
+        for idx, agent_id in enumerate(self._agent_to_index):
+            #agent = self._agents[agent_id]
+            agent = model.schedule._agents[agent_id]
             agent.grid_position_index = idx
             self._index_to_agent[idx] = agent_id
             self._agent_points[idx] = np.array(agent.position)
-        #self.grid._agent_id_to_grid_index = {agent.unique_id: idx for agent, idx in self.grid._agent_to_index}
-        #self.grid_index_to_agent_id = {idx: agent.unique_id for idx, agent in self.grid._index_to_agent}
 
     def move_agent(self, agent: Agent, pos: FloatCoordinate, idx=None) -> None:
         """Move an agent from its current position to a new position.
@@ -1054,14 +1060,9 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
             raise NotImplementedError("place_agent not implemented for non-owner SharedMemoryContinuousSpace")
         self._invalidate_agent_cache()
         self._agent_to_index[agent.unique_id] = None
-        self._agents[agent.unique_id] = agent
+        #self._agents[agent.unique_id] = agent
         pos = self.torus_adj(pos)
         agent.pos = pos
-
-    #def _invalidate_agent_cache(self):
-    #    if not self._owner:
-    #        raise NotImplementedError("_invalidate_agent_cache not implemented for non-owner SharedMemoryContinuousSpace")
-    #    ContinuousSpace._invalidate_agent_cache(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._shm is not None:
@@ -1069,6 +1070,35 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
             if self._owner:
                 self._shm.unlink()
         return True
+
+    def __getstate__(self):
+        """Controls how this object is pickled
+        :returns: state to be pickled
+
+        """
+        state = {key:  (value.copy() if isinstance(value, dict) else value)
+                 for key, value in self.__dict__.items() if key != '_shm'}
+
+        if state['_owner']:
+            state['_agent_points'] = np.copy(state['_agent_points'])
+        else:
+            del state['_agent_points']
+
+        return state
+
+    def __setstate__(self, state):
+        """Controls how this object is unpickled
+        :state: dict of class attributes like self.__dict__
+
+        """
+        array_data = (state.pop('_agent_points')
+                if '_agent_points' in state
+                else None)
+        self.__dict__.update(state)
+        self.initialize_array()
+        if self._owner:
+            self._agent_points[:,:] = array_data[:,:]
+
 
 class NetworkGrid:
     """Network Grid where each node contains zero or more agents."""

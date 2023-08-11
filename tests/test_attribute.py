@@ -3,10 +3,10 @@ Test the Grid objects.
 """
 import random
 import unittest
+import pickle
 from unittest.mock import Mock, patch
 import numpy as np
 from mesa.attribute import AttributeCollection, SharedMemoryAttributeCollection
-
 class TestAttributeCollection(unittest.TestCase):
     """
     Testing an attribute.
@@ -112,7 +112,6 @@ class TestAttributeCollection(unittest.TestCase):
 
 class TestSharedMemoryAttributeCollection(TestAttributeCollection):
 
-
     def setUp(self):
         """
         Set up attributes
@@ -121,8 +120,8 @@ class TestSharedMemoryAttributeCollection(TestAttributeCollection):
         self.float_data = [1.9, 2, 17.1, -1, 0]
         self.integer_data = [-2, 5, 6, 0, 12]
         attributes = {
-            'float': {'dtype': np.float64},
-            'int': {'dtype': np.int32},
+            'float': {'dtype': np.float64, 'owner': True},
+            'int': {'dtype': np.int32, 'owner': True},
         }
 
         self.attributes = SharedMemoryAttributeCollection(len(self.agents) + 5, attributes)
@@ -130,6 +129,31 @@ class TestSharedMemoryAttributeCollection(TestAttributeCollection):
         for agent, flt, intg in zip(self.agents, self.float_data, self.integer_data):
             self.attributes[agent,'float'] = flt
             self.attributes[agent,'int'] = intg
+
+        attributes_with_handle = {key: value.copy() for key, value in self.attributes.attributes.items()}
+        for attr in attributes_with_handle:
+            attributes_with_handle[attr]['owner'] = False
+            del attributes_with_handle[attr]['shm']
+            del attributes_with_handle[attr]['array']
+
+        self.unowned_attributes = SharedMemoryAttributeCollection(len(self.agents) + 5, attributes_with_handle)
+        self.unowned_attributes.set_indexes(agent_to_index=self.attributes._agent_to_index)
+
+    def test_pickling(self):
+        pickled = pickle.dumps(self.attributes)
+        unpickled = pickle.loads(pickled)
+
+        for agent, flt, intg in zip(self.agents, self.float_data, self.integer_data):
+            self.assertEqual(unpickled[agent, 'float'], flt)
+            self.assertEqual(unpickled[agent, 'int'], intg)
+
+    def test_pickling_secondary(self):
+        pickled = pickle.dumps(self.unowned_attributes)
+        unpickled = pickle.loads(pickled)
+
+        for agent, flt, intg in zip(self.agents, self.float_data, self.integer_data):
+            self.assertEqual(unpickled[agent, 'float'], flt)
+            self.assertEqual(unpickled[agent, 'int'], intg)
 
     def tearDown(self):
         self.attributes.__exit__(None,None,None)

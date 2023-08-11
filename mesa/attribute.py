@@ -13,6 +13,7 @@ modules providing shared-memory atrributes enabling worker parallelism
 from __future__ import annotations
 import random
 import string
+import logging as log
 from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
@@ -153,29 +154,20 @@ class SharedMemoryAttributeCollection(AttributeCollection):
     """Float attribute stored in shared memory - accessible by parallel workers"""
     _shared = True
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        for arr in self.attributes.values():
-            try:
-                shm = arr['shm']
-            except KeyError:
-                pass
-            else:
-                shm.close()
-                if arr['owner']:
-                    shm.unlink()
-        return True
-
     def add_attribute(self, name, metadata):
         assert name not in self.attributes, f'attribute {name} already registered'
         metadata = metadata.copy()  # shallow copy only
         if 'handle' not in metadata:
+            assert metadata['owner'], 'Handle provided but the instance is supposed to be the owner and generate a new handle'
             metadata['handle'] = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(16))
-            metadata['owner'] = True
-        else:
-            metadata['owner'] = False
+        #else:
+        #    assert not metadata['owner'], "No attribute handle provided but also not the owner."
         dtype, handle, create = metadata['dtype'], metadata['handle'], metadata['owner']
         byte_array_size = self.size * np.dtype(dtype).itemsize
         metadata['shm'] = SharedMemory(name=handle, size=byte_array_size, create=create)
+        if create:
+            print(f"Created shared memory array for {name} at {handle}")
+            log.info(f"Created shared memory array for {name} at {handle}")
         buffer = metadata['shm'].buf
         metadata['array'] = np.ndarray(shape=(self.size,), dtype=dtype, buffer=buffer)
         self.attributes[name] = metadata
@@ -187,3 +179,65 @@ class SharedMemoryAttributeCollection(AttributeCollection):
             if attribute['owner']:
                 array.unlink()
         return True
+
+    def __getstate__(self):
+        """Controls how this object is pickled
+        :returns: state to be pickled
+
+        """
+        state = {}
+
+        for key, value in self.__dict__.items():
+            if key != 'attributes': # top level attributes
+                state[key] = value
+            else: # the collection of arrays
+                new_value = {}
+                attributes = value
+                for name, attr in attributes.items(): 
+                    # build the metadata for the shared memory arrays
+                    new_value[name] = {}
+                    for k, v in attr.items():
+                        if k == 'shm':
+                            pass # don't dump these file handles
+                        elif k == 'array' and not attr['owner']:
+                            pass # don't dump array if not the owner
+                        elif k == 'array' and attr['owner']:
+                            # copy this array to
+                            new_value[name][k] = np.copy(v)
+                        else:
+                            new_value[name][k] = v
+                state[key] = new_value   
+        return state
+
+    def __setstate__(self, state):
+        """Controls how this object is unpickled
+        :state: dict of class attributes like self.__dict__
+
+        """
+        attributes = state.pop('attributes')
+        self.__dict__.update(state)
+        self.attributes = {}
+
+        for name, metadata in attributes.items():
+            array_data = (metadata.pop('array')
+                if 'array' in metadata
+                else None)
+            try:
+                self.add_attribute(name, metadata)
+            except FileNotFoundError as e:
+                print(e)
+            else:
+                if self.attributes[name]['owner'] and array_data is not None:
+                    self.attributes[name]['array'][:] = array_data[:]
+
+    def set_indexes(self, index_to_agent=None, agent_to_index=None):
+        assert self._agent_to_index == {} and self._index_to_agent == {}, \
+            'Attempting to set index but it already exist'
+        if agent_to_index is not None:
+            self._agent_to_index = agent_to_index
+            self._index_to_agent = {index: agent for agent, index in agent_to_index.items()}
+        elif index_to_agent is not None:
+            self._index_to_agent = index_to_agent
+            self._agent_to_index = {agent: index for index, agent in index_to_agent.items()}
+        else:
+             raise RuntimeError('At least one of index_to_agent and agent_to_index must be set')
