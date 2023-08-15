@@ -45,15 +45,17 @@ def shutdown_worker(worker):
     raise RuntimeError(f"Received unexpected data while killing worker process")
 
 
-def initialize_worker(child_model):
+def initialize_worker(child_model, pickle_path=None):
     """Create a worker process and return the connection details
     :returns: connection details for the worker
 
     """
     parent_pipe, child_pipe = multiprocessing.Pipe()
+
     process = multiprocessing.Process(
         target=model_worker_server,
-        args=(child_pipe, child_model)
+        args=(child_pipe, child_model),
+        kwargs={'pickle_path': pickle_path}
     )
     process.start()
     worker = {'process': process, 'connection': parent_pipe}
@@ -85,7 +87,11 @@ def handle_message(model, message):
         response = e
         return response
 
-def model_worker_server(pipe, model):
+def model_worker_server(pipe, model, pickle_path=None):
+    if pickle_path is not None:
+        with open(pickle_path, 'rb') as f:
+            model = pickle.load(f)
+
     signal.signal(signal.SIGINT, ignore_signal_handler)
     #profiler = cProfile.Profile()
     #profiler.enable()

@@ -20,6 +20,7 @@ from mesa.space import SharedMemoryContinuousSpace
 from mesa.attribute import SharedMemoryAttributeCollection
 from tqdm import tqdm
 import logging as log
+import os
 
 class ModelMaster:
     """A parallel worker managing computation and messaging with other child_models"""
@@ -100,26 +101,30 @@ class ModelMaster:
             state['_model_workers'] = {}
         self.__dict__.update(state)
 
-    def to_pickle(self, path):
-        log.info(f"Saving to {path}")
-        print(f"Saving to {path}")
+    def to_pickle(self, dir_path):
+        os.makedirs(dir_path, exist_ok=True)
+        log.info(f"Saving to {dir_path}")
         child_models = self.__dict__.pop('_child_models')
-        print(f'{len(child_models)} popped')
-        with open(path, 'wb') as f:
+        self._child_models = {id_: None for id_ in child_models}
+        with open(os.path.join(dir_path, 'model_master.pkl'), 'wb') as f:
             pickle.dump(self, f)
-            pickle.dump(child_models,f)
+        for id_, child in child_models.items():
+            with open(os.path.join(dir_path, f'child_model_{id_}.pkl'), 'wb') as f:
+                pickle.dump(child,f)
         self._child_models = child_models
 
     @classmethod
-    def from_pickle(cls, path):
-        log.info(f"Loading from {path}")
-        print(f"Loading from {path}")
-        with open(path, 'rb') as f:
+    def from_pickle(cls, dir_path, with_children=False):
+        log.info(f"Loading from {dir_path}")
+        with open(os.path.join(dir_path,'model_master.pkl'), 'rb') as f:
             model_master = pickle.load(f)
-            child_models = pickle.load(f)
-            model_master._child_models = child_models
+        if with_children:
+            for id_ in list(model_master._child_models):
+                with open(os.path.join(dir_path, f'child_model_{id_}.pkl'),'rb') as f:
+                    child_model = pickle.load(f)
+                    model_master._child_models[id_] = child_model
         return model_master
-            
+
 
     def _start_model_workers(self, model_worker_data):
         """Restart model workers after serializations
@@ -130,12 +135,18 @@ class ModelMaster:
         # refactor to use initialize_workers or combine?
         pass
 
-    def initialize_workers(self) -> None:
+    def initialize_workers(self, from_pickle=None) -> None:
         """ Initialize worker processes
         """
-        for i in tqdm(range(self._n_workers), total=self._n_workers, desc="Initializing worker processes"):
-            worker = initialize_worker(self._child_models[i])
-            self._model_workers[i] = worker
+        self._child_models = {i: None for i in range(self._n_workers)}
+        child_model_ids = list(self._child_models.keys())
+        for id_ in tqdm(child_model_ids, total=self._n_workers, desc="Initializing worker processes"):
+           
+            worker = initialize_worker(
+                self._child_models[id_],
+                pickle_path=os.path.join(from_pickle, f'child_model_{id_}.pkl')
+            )
+            self._model_workers[id_] = worker
 
     def run_model(self) -> None:
         """Run the model until the end condition is reached. Overload as
@@ -196,12 +207,12 @@ class ModelMaster:
             raise RuntimeError(
                 "You must initialize the scheduler (self.schedule) before initializing the data collector."
             )
-        if (self.schedule.get_agent_count() == 0
-            and all(model.schedule.get_agent_count() == 0 for model in self._child_models.values())
-            ):
-            raise RuntimeError(
-                "You must add agents to the scheduler before initializing the data collector."
-            )
+        #if (self.schedule.get_agent_count() == 0
+        #    and all(model.schedule.get_agent_count() == 0 for model in self._child_models.values())
+        #    ):
+        #    raise RuntimeError(
+        #        "You must add agents to the scheduler before initializing the data collector."
+        #    )
         self.datacollector = ParallelDataCollector(
             model_reporters=model_reporters,
             agent_reporters=agent_reporters,
