@@ -1,14 +1,15 @@
 import traceback
 import pickle
 import time
-#import cProfile
+import cProfile
 import os
 import multiprocessing
 import logging as log
 import signal
 
+
 def ignore_signal_handler(signal, frame):
-    # Use this to allow the other mechanisms to allow graceful shutdown
+    """ Use this to allow the other mechanisms to allow graceful shutdown """
     log.debug(f"Ignoring signal {signal}")
 
 
@@ -21,8 +22,8 @@ class WorkerException(Exception):
         Exception.__init__(self, *args, **kwargs)
 
 
-
 def log_traceback(ex, ex_traceback=None):
+    """Handler for logging tracebacks"""
     ex_traceback = ex.__traceback__
     tb_lines = [ line.rstrip('\n') for line in
                  traceback.format_exception(ex.__class__, ex, ex_traceback)]
@@ -93,8 +94,8 @@ def model_worker_server(pipe, model, pickle_path=None):
             model = pickle.load(f)
 
     signal.signal(signal.SIGINT, ignore_signal_handler)
-    #profiler = cProfile.Profile()
-    #profiler.enable()
+    profiler = cProfile.Profile()
+    profiler.enable()
     log.debug(f"Child model server {model} running")
     while True:
         # Receieve instructions and respond
@@ -122,8 +123,8 @@ def model_worker_server(pipe, model, pickle_path=None):
     for attr_collection in model._shared_attributes.values():
         attr_collection.__exit__(None, None, None)
     log.debug(f"Child model server {model} shutting down")
-    #profiler.disable()
-    #profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")
+    profiler.disable()
+    profiler.dump_stats(f"profiling/server_{os.getpid()}.prof")
 
 
 def send(data, pipe):

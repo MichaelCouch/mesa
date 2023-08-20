@@ -1033,11 +1033,12 @@ class SharedMemoryContinuousSpace(ContinuousSpace):
         """Cache agents positions to speed up neighbors calculations."""
         self.initialize_array()
         #for idx, agent_id in enumerate(self._agents):
-        for idx, agent_id in enumerate(self._agent_to_index):
+        for idx, agent_id in enumerate(list(self._agent_to_index)):
             #agent = self._agents[agent_id]
             agent = model.schedule._agents[agent_id]
             agent.grid_position_index = idx
             self._index_to_agent[idx] = agent_id
+            self._agent_to_index[agent_id] = idx
             self._agent_points[idx] = np.array(agent.position)
 
     def move_agent(self, agent: Agent, pos: FloatCoordinate, idx=None) -> None:
