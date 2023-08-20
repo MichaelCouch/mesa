@@ -901,7 +901,7 @@ class ContinuousSpace:
         agent.pos = None
 
     def get_neighbors(
-        self, pos: FloatCoordinate, radius: float
+        self, pos: FloatCoordinate, radius: float, indexes_only=False
     ) -> list[Agent]:
         """Get all agents within a certain radius.
 
@@ -926,7 +926,8 @@ class ContinuousSpace:
         #(idxs,) = np.where(dists <= radius**2)
         idxs = self._spatial_index.query_ball_point(pos, r=radius)
         # could parallelize this if pos is an array!
-
+        if indexes_only:
+            return idxs
         neighbors = [
             self._index_to_agent[x] for x in idxs
         ]
