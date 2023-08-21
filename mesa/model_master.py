@@ -113,16 +113,25 @@ class ModelMaster:
         # TODO: handle the child-model/worker-model dual existance better
         with open(os.path.join(dir_path, 'model_master.pkl'), 'wb') as f:
             pickle.dump(self, f)
-        for id_, child in child_models.items():
+        self._child_models = child_models
+        self._model_workers = model_workers
+
+        for id_, child in self._child_models.items():
             if child is not None:
                 child.to_pickle(os.path.join(dir_path, f'child_model_{id_}.pkl'))
 
+        args = {id_: (os.path.join(dir_path, f'child_model_{id_}.pkl'),)
+                for id_ in self._model_workers}
+        self.instruct_workers('to_pickle', args)
+
+
+    def instruct_workers(self, operation, args):
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
             future_to_responses = {executor.submit(
                     communicate_message,
-                    worker, 
-                    ('to_pickle', (os.path.join(dir_path, f'child_model_{id_}.pkl'),))
-                ): worker for id_, worker in model_workers.items()
+                    worker,
+                    (operation, args[id_])
+                ): worker for id_, worker in self._model_workers.items()
             }
             for future in concurrent.futures.as_completed(future_to_responses):
                 worker = future_to_responses[future]
@@ -132,8 +141,6 @@ class ModelMaster:
                     print('%r generated an exception: %s' % (worker, exc))
                     raise exc
 
-        self._child_models = child_models
-        self._model_workers = model_workers
 
     @staticmethod
     def from_pickle(dir_path, with_children=False):
@@ -182,26 +189,12 @@ class ModelMaster:
         self.schedule.step() # Possibly the below should be included in schedule.step?
 
         # Advance
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
-            future_to_responses = {executor.submit(communicate_message, worker, ('advance', tuple())): worker for worker in self._model_workers.values()}
-            for future in concurrent.futures.as_completed(future_to_responses):
-                worker = future_to_responses[future]
-                try:
-                    data = future.result()
-                except Exception as exc:
-                    print('%r generated an exception: %s' % (worker, exc))
-                    raise exc
+        args = {id_: tuple() for id_ in self._model_workers}
+        self.instruct_workers('advance', args)
 
         # Step
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
-            future_to_responses = {executor.submit(communicate_message, worker, ('step', tuple())): worker for worker in self._model_workers.values()}
-            for future in concurrent.futures.as_completed(future_to_responses):
-                worker = future_to_responses[future]
-                try:
-                    data = future.result()
-                except Exception as exc:
-                    print('%r generated an exception: %s' % (worker, exc))
-                    raise exc
+        args = {id_: tuple() for id_ in self._model_workers}
+        self.instruct_workers('step', args)
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""
