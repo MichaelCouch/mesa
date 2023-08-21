@@ -104,25 +104,47 @@ class ModelMaster:
     def to_pickle(self, dir_path):
         os.makedirs(dir_path, exist_ok=True)
         log.info(f"Saving to {dir_path}")
+
         child_models = self.__dict__.pop('_child_models')
         self._child_models = {id_: None for id_ in child_models}
+        model_workers = self.__dict__.pop('_model_workers')
+        self._model_workers = {id_: None for id_ in model_workers}
+
+        # TODO: handle the child-model/worker-model dual existance better
         with open(os.path.join(dir_path, 'model_master.pkl'), 'wb') as f:
             pickle.dump(self, f)
         for id_, child in child_models.items():
-            with open(os.path.join(dir_path, f'child_model_{id_}.pkl'), 'wb') as f:
-                pickle.dump(child,f)
-        self._child_models = child_models
+            if child is not None:
+                child.to_pickle(os.path.join(dir_path, f'child_model_{id_}.pkl'))
 
-    @classmethod
-    def from_pickle(cls, dir_path, with_children=False):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
+            future_to_responses = {executor.submit(
+                    communicate_message,
+                    worker, 
+                    ('to_pickle', (os.path.join(dir_path, f'child_model_{id_}.pkl'),))
+                ): worker for id_, worker in model_workers.items()
+            }
+            for future in concurrent.futures.as_completed(future_to_responses):
+                worker = future_to_responses[future]
+                try:
+                    data = future.result()
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (worker, exc))
+                    raise exc
+
+        self._child_models = child_models
+        self._model_workers = model_workers
+
+    @staticmethod
+    def from_pickle(dir_path, with_children=False):
         log.info(f"Loading from {dir_path}")
         with open(os.path.join(dir_path,'model_master.pkl'), 'rb') as f:
             model_master = pickle.load(f)
         if with_children:
             for id_ in list(model_master._child_models):
-                with open(os.path.join(dir_path, f'child_model_{id_}.pkl'),'rb') as f:
-                    child_model = pickle.load(f)
-                    model_master._child_models[id_] = child_model
+                path = os.path.join(dir_path, f'child_model_{id_}.pkl')
+                child_model = ParallelWorkerModel.from_pickle(path)
+                model_master._child_models[id_] = child_model
         return model_master
 
 
@@ -138,10 +160,10 @@ class ModelMaster:
     def initialize_workers(self, from_pickle=None) -> None:
         """ Initialize worker processes
         """
-        self._child_models = {i: None for i in range(self._n_workers)}
+        if not hasattr(self, '_child_models'):
+            self._child_models = {i: None for i in range(self._n_workers)}
         child_model_ids = list(self._child_models.keys())
         for id_ in tqdm(child_model_ids, total=self._n_workers, desc="Initializing worker processes"):
-           
             worker = initialize_worker(
                 self._child_models[id_],
                 pickle_path=os.path.join(from_pickle, f'child_model_{id_}.pkl')
@@ -168,6 +190,7 @@ class ModelMaster:
                     data = future.result()
                 except Exception as exc:
                     print('%r generated an exception: %s' % (worker, exc))
+                    raise exc
 
         # Step
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._n_workers) as executor:
@@ -178,6 +201,7 @@ class ModelMaster:
                     data = future.result()
                 except Exception as exc:
                     print('%r generated an exception: %s' % (worker, exc))
+                    raise exc
 
     def next_id(self) -> int:
         """Return the next unique ID for agents, increment current_id"""
@@ -207,12 +231,6 @@ class ModelMaster:
             raise RuntimeError(
                 "You must initialize the scheduler (self.schedule) before initializing the data collector."
             )
-        #if (self.schedule.get_agent_count() == 0
-        #    and all(model.schedule.get_agent_count() == 0 for model in self._child_models.values())
-        #    ):
-        #    raise RuntimeError(
-        #        "You must add agents to the scheduler before initializing the data collector."
-        #    )
         self.datacollector = ParallelDataCollector(
             model_reporters=model_reporters,
             agent_reporters=agent_reporters,
@@ -253,9 +271,6 @@ class ModelMaster:
         for worker_model in self._child_models.values():
             worker_model.link_shared_attributes(attrs)
 
-        
-             
-        
 
 class ParallelWorkerModel(Model):
 
@@ -278,5 +293,20 @@ class ParallelWorkerModel(Model):
                 new_metadata['owner'] = False
                 attrs.add_attribute(name, new_metadata)
             self._shared_attributes[cls] = attrs
+
+    def to_pickle(self, path):
+        "serialize model as a pickle"
+        log.debug(f"Saving to {path}")
+        with open(path, 'wb') as f:
+            pickle.dump(self,f)
+
+    @staticmethod
+    def from_pickle(path):
+        "deserialize pickle"
+        log.debug(f"Loading from {path}")
+        with open(path, 'rb') as f:
+            model = pickle.load(f)
+        return model
+
 
 
