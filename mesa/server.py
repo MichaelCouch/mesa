@@ -6,6 +6,8 @@ import os
 import multiprocessing
 import logging as log
 import signal
+import queue
+from flask import Flask, request
 
 
 def ignore_signal_handler(signal, frame):
@@ -144,3 +146,26 @@ def communicate_message(worker, message):
     send(message, pipe)
     response = receive(pipe)
     return response
+
+def listener_api(instruct_queue):
+    app = Flask(__name__)
+
+    @app.route('/instruct_model', methods=['POST'])
+    def add_message():
+        message = request.json.get('message')
+        log.info(f"API Received message {message}")
+        if message:
+            instruct_queue.put(message)
+            return "Message added to the queue"
+        return "No message provided", 400
+
+    log.info("Starting Listener!")
+    app.run(host='127.0.0.1', port=9678, debug=False, use_reloader=False)
+
+def read_listener(q):
+    try:
+        msg = q.get(block=False)
+        log.info(f"Model received instruction {msg}")
+        return msg
+    except queue.Empty:
+        pass

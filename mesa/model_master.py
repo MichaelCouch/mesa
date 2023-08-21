@@ -10,12 +10,12 @@ import random
 import concurrent.futures
 import time
 import pickle
-
+import multiprocessing
 from typing import Any
 
 from mesa.datacollection import DataCollector, ParallelDataCollector
 from mesa.model import Model
-from mesa.server import initialize_worker, shutdown_worker, communicate_message
+from mesa.server import initialize_worker, shutdown_worker, communicate_message, listener_api, read_listener
 from mesa.space import SharedMemoryContinuousSpace
 from mesa.attribute import SharedMemoryAttributeCollection
 from tqdm import tqdm
@@ -62,10 +62,11 @@ class ModelMaster:
         for worker in tqdm(self._model_workers.values(), total=len(self._model_workers), desc="Shutting down workers"):
             shutdown_worker(worker)
 
+        if hasattr(self, '_listener_process'):
+            self._listener_process.terminate()
+
         if hasattr(self, 'grid'):
             self.grid.__exit__(exc_type, exc_val, exc_tb)
-        if exc_type is not None:
-            return False
 
         if hasattr(self, '_shared_attributes'):
             for attribute_collection in self._shared_attributes.values():
@@ -176,6 +177,18 @@ class ModelMaster:
                 pickle_path=os.path.join(from_pickle, f'child_model_{id_}.pkl')
             )
             self._model_workers[id_] = worker
+
+    def start_listener(self):
+        # move this to server.py?
+        listener_queue = multiprocessing.Queue()
+        listener_process = multiprocessing.Process(target=listener_api, args=(listener_queue,))
+        listener_process.start()
+        self._listener_queue = listener_queue
+        self._listener_process = listener_process
+
+    def read_from_listener(self):
+        return read_listener(self._listener_queue)
+
 
     def run_model(self) -> None:
         """Run the model until the end condition is reached. Overload as
