@@ -110,12 +110,21 @@ class ModelMaster:
         self._child_models = {id_: None for id_ in child_models}
         model_workers = self.__dict__.pop('_model_workers')
         self._model_workers = {id_: None for id_ in model_workers}
+        if hasattr(self, '_listener_process'):
+            listener_process, listener_queue = self.__dict__.pop('_listener_process'), self.__dict__.pop('_listener_queue')
+        else: 
+            listener_process, listener_queue = None, None
+
+        self._model_workers = {id_: None for id_ in model_workers}
 
         # TODO: handle the child-model/worker-model dual existance better
         with open(os.path.join(dir_path, 'model_master.pkl'), 'wb') as f:
             pickle.dump(self, f)
         self._child_models = child_models
         self._model_workers = model_workers
+        if listener_queue is not None:
+            self._listener_process = listener_process
+            self._listener_queue = listener_queue
 
         for id_, child in self._child_models.items():
             if child is not None:

@@ -8,7 +8,7 @@ import logging as log
 import signal
 import queue
 from flask import Flask, request
-
+import socket
 
 def ignore_signal_handler(signal, frame):
     """ Use this to allow the other mechanisms to allow graceful shutdown """
@@ -160,7 +160,12 @@ def listener_api(instruct_queue):
         return "No message provided", 400
 
     log.info("Starting Listener!")
-    app.run(host='127.0.0.1', port=9678, debug=False, use_reloader=False)
+    for port in range(8000, 9000):
+        try:
+            app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
+            break
+        except socket.error:
+            pass
 
 def read_listener(q):
     try:
